@@ -30,12 +30,14 @@ void send_packet_multiple_times(int sock, char *packet, int packet_size, int sen
         if (packet_size > 2048){
             send_large_message(sock,packet, packet_size);
         }
-        else{} (send(sock, packet, packet_size, 0) != packet_size) {
+        else{
+		if(send(sock, packet, packet_size, 0) != packet_size) {
             printf("Error sending packet of size %d\n", packet_size);
             return;
-        }
+        }}
     }
 
+    send(sock,"MESSAGE COMPLETE",strlen("MESSAGE COMPLETE"),0);	
     printf("Sent %d packets of size %d bytes\n", send_count, packet_size);
 }
 
@@ -55,8 +57,7 @@ void send_packets(int sock, int send_count) {
         }
 
         send_packet_multiple_times(sock, packet, packet_size, send_count);
-        int valread;
-        valread = read(sock, buffer, 1024);
+        int valread = read(sock, buffer, 1024);
         printf("Received: %s\n", buffer);
     
         free(packet);

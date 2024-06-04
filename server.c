@@ -8,7 +8,8 @@
 #define PORT 8888  // The port number on which the server will listen
 
 int main() {
-    printf("%s","starting");
+    printf("%s\n","starting");
+    fflush(stdout);
     int server_fd, new_socket, valread;
     struct sockaddr_in address;
     int addrlen = sizeof(address);
@@ -43,10 +44,11 @@ int main() {
         exit(EXIT_FAILURE);
     }
     
-    while (strcmp(buffer,"END") == 0){
-        valread = read(new_socket, buffer, 1 << 20);
-        if (strcmp(buffer,"MESSAGE COMPLETE") == 1){
+    while (strcmp(buffer,"END") != 0){
+        valread = read(new_socket, buffer, 1<<20);
+        if (strcmp(buffer,"MESSAGE COMPLETE") == 0){
             printf("Received: %s\n", buffer);
+	    fflush(stdout);
             send(new_socket, "RECEIVED", strlen("RECEIVED"), 0);
         }    
     }
