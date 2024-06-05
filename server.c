@@ -28,8 +28,10 @@ int main(void)
     char message[] = "Hello, World!";
 
     // Send message to the client
-    send(client_socket, message, strlen(message), 0);
-
+    while(1){
+        send(client_socket, message, strlen(message), 0);    
+    }
+    
     // Close the client socket
     close(client_socket);
 
