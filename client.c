@@ -14,10 +14,15 @@ void send_packet(int sock, int packet_size){
 
 
 void send_mul_packets(int sock, int packet_size, int amount){
-  for (int i=0; i<amount+1; i++)
+  
+  int i = 0;
+  while (recv(client_socket, message, 255, 0) > 0){
   {
+    i++;
+    if (i>amount){break;}
     send_packet(sock, packet_size);
   }
+  send(sock, "FINISHED", strlen("FINISHED"), 0);
 } 
 
 
