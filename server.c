@@ -34,12 +34,7 @@ int main(void)
     
     
     while (recv(client_socket, message, 255, 0) > 0){
-        i = atoi(message);
-        printf("%s\n", message);
-        fflush(stdout);
-        i++;
-        sprintf(str, "%d", i);
-        send(client_socket, str, strlen(str), 0);
+        send(client_socket, "Recived", strlen("Recived"), 0);
     }
     
     
