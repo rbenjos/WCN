@@ -24,11 +24,16 @@ int main(void)
     memset(message, 0, 256);
 
     // Receive max of 255 characters from server (null terminated)
-    recv(client_socket, message, 255, 0);
+    while(1){
+        recv(client_socket, message, 255, 0);
+        printf("%s", message);
+        fflush(stdout);
+    }
+    
 
     // Close the connection
     close(client_socket);
 
-    printf("%s", message);
+    
     return 0;
 }
