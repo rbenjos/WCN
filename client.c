@@ -24,6 +24,8 @@ void send_mul_packets(int sock, int packet_size, int amount){
     send_packet(sock, packet_size);
   }
   send(sock, "FINISHED", strlen("FINISHED"), 0);
+  printf("%s\n", message);
+  fflush(stdout);
 } 
 
 
