@@ -17,7 +17,7 @@ int main() {
 
     // Creating socket file descriptor
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
-        perror("socket failed");
+        perror("socket failed\n");
         exit(EXIT_FAILURE);
     }
 
@@ -27,19 +27,19 @@ int main() {
 
     // Forcefully attaching socket to the port 8888
     if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
-        perror("bind failed");
+        perror("bind failed\n");
         exit(EXIT_FAILURE);
     }
 
     // Listening for incoming connections
     if (listen(server_fd, 3) < 0) {
-        perror("listen");
+        perror("listen\n");
         exit(EXIT_FAILURE);
     }
 
     // Accepting incoming connection
     if ((new_socket = accept(server_fd, (struct sockaddr *)&address, (socklen_t*)&addrlen)) < 0) {
-        perror("accept");
+        perror("accept\n");
         exit(EXIT_FAILURE);
     }
     
@@ -53,7 +53,7 @@ int main() {
     }
     
     // Sending a response back to the client
-    send(new_socket, "EXPERIMENT COMPLETE", strlen(hello), 0);
+    send(new_socket, "EXPERIMENT COMPLETE", strlen("EXPERIMENT COMPLETE"), 0);
     printf("EXPERIMENT COMPLETE, SHUTTING DOWN"\n");
 
     // Closing the connected socket
