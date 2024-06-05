@@ -9,7 +9,8 @@
 
 
 void send_packet(int sock, int packet_size){
-  char packet[packet_size] = {0};
+  char *packet;
+  packet = (char *) calloc(packet_size);
   send(sock, packet, packet_size, 0);
 }
 
@@ -30,22 +31,13 @@ int main(void)
 
     char message[256];
     memset(message, 0, 256);
-
-    
-    
-
-    int i = 0;
-    char str[20]; // Buffer to hold the converted string
-    sprintf(str, "%d", i);
-    send(client_socket, str, strlen(str), 0);
+    send(client_socket, "STARTING", strlen("STARTING"), 0);
 
     
     while (recv(client_socket, message, 255, 0) > 0){
-        i = atoi(message);
         printf("%s\n", message);
         fflush(stdout);
         i++;
-        sprintf(str, "%d", i);
         send_packet(client_socket, i);
     
     }
