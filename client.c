@@ -31,16 +31,17 @@ int main(void)
     sprintf(str, "%d", i);
     send(client_socket, str, strlen(str), 0);
 
-    while(1){
-        while (recv(client_socket, message, 255, 0) > 0){
-            i = atoi(message);
-            printf("%s\n", message);
-            fflush(stdout);
-            i++;
-            sprintf(str, "%d", i);
-            send(client_socket, str, strlen(str), 0);
-        }
+    
+    while (recv(client_socket, message, 255, 0) > 0){
+        i = atoi(message);
+        printf("%s\n", message);
+        fflush(stdout);
+        i++;
+        sprintf(str, "%d", i);
+        send(client_socket, str, strlen(str), 0);
+    
     }
+    
     
 
     // Close the connection
