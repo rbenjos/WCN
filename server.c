@@ -29,11 +29,13 @@ int main(void)
     memset(message, 0, 256);
 
     // Send message to the client
+    int i = 0;
     while(1){
         while (recv(client_socket, message, 255, 0) > 0){
             printf("%s\n", message);
             fflush(stdout);
-            send(client_socket, "It works!", strlen("It works!"), 0);
+            send(client_socket, i, strlen(str(i)), 0);
+            i++;
         }
     }
     
