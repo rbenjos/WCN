@@ -23,7 +23,8 @@ int main(void)
     char message[256];
     memset(message, 0, 256);
 
-    // Receive max of 255 characters from server (null terminated)
+    
+    send(client_socket, "First Message", strlen("First Message"), 0);
     while(1){
         while(recv(client_socket, message, 255, 0) > 0){
             printf("%s\n", message);
