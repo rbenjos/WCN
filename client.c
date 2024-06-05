@@ -37,8 +37,7 @@ int main(void)
     while (recv(client_socket, message, 255, 0) > 0){
         printf("%s\n", message);
         fflush(stdout);
-        i++;
-        send_packet(client_socket, i);
+        send_packet(client_socket, 16);
     
     }
     
