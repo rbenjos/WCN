@@ -8,7 +8,6 @@
 #define PORT 8888  // The port number to connect to on the server
 
 void send_large_message(int sock, char *packet, int message_len){
-
 int bytes_sent_total = 0;
 int bytes_sent_now = 0;
 while (bytes_sent_total < message_len)
@@ -17,6 +16,7 @@ while (bytes_sent_total < message_len)
     if (bytes_sent_now == -1)
     {
         printf("Error sending chunk of size %d\n", message_len);
+	fflush(stdout);
         break;
     }
     bytes_sent_total += bytes_sent_now;
@@ -24,30 +24,29 @@ while (bytes_sent_total < message_len)
 }
 
 void send_packet_multiple_times(int sock, char *packet, int packet_size, int send_count) {
-    int j;
-
-    for (j = 0; j < send_count; j++) {
+    for (int j = 0; j < send_count; j++) {
         if (packet_size > 2048){
             send_large_message(sock,packet, packet_size);
         }
         else{
 		if(send(sock, packet, packet_size, 0) != packet_size) {
             printf("Error sending packet of size %d\n", packet_size);
+	    fflush(stdout);
             return;
         }}
     }
 
-    send(sock,"MESSAGE COMPLETE",strlen("MESSAGE COMPLETE"),0);	
+    send(sock,"PHASE COMPLETE",strlen("PHASE COMPLETE"),0);	
     printf("Sent %d packets of size %d bytes\n", send_count, packet_size);
+    fflush(stdout);
 }
 
 void send_packets(int sock, int send_count) {
-    int i;
     char *packet;
     int packet_size;
     char buffer[1024] = {0};
 
-    for (i = 0; i < 20; i++) {
+    for (int i = 0; i < 20; i++) {
         packet_size = 1 << i;  // Calculate packet size as 2^i
         packet = (char *)malloc(packet_size);  // Allocate memory for the packet
 
@@ -57,9 +56,16 @@ void send_packets(int sock, int send_count) {
         }
 
         send_packet_multiple_times(sock, packet, packet_size, send_count);
-        int valread = read(sock, buffer, 1024);
-        printf("Received: %s\n", buffer);
-    
+
+	while(1){
+	int valread = read(sock, buffer, 1024);
+	printf("Received: %s\n", buffer);
+	fflush(stdout);
+	if (strcmp(buffer,"PHASE COMPLETE") == 0){
+		break;
+	}
+        
+	}
         free(packet);
         printf("Sent all packets\n");
     }
@@ -68,8 +74,6 @@ void send_packets(int sock, int send_count) {
 int main() {
     int sock = 0, valread;
     struct sockaddr_in serv_addr;
-    char *hello = "Hello from client";  // Message to send to the server
-    char buffer[1024] = {0};  // Buffer to store the response from the server
 
     // Creating socket file descriptor
     if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
@@ -95,11 +99,7 @@ int main() {
     // Sending data to the server
     int send_count = 10;
     send_packets(sock, send_count);
-
-    // Reading the response from the server
-    valread = read(sock, buffer, 1024);
-    printf("Received: %s\n", buffer);
-
+	
     // Closing the connected socket
     close(sock);
     return 0;
