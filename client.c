@@ -15,7 +15,7 @@ int main(void)
     address.sin_port = htons(8080);
 
     // Set address to your computer's local address
-    inet_aton("127.0.0.1", (struct in_addr *) &(address.sin_addr.s_addr));
+    inet_aton("132.65.164.101", (struct in_addr *) &(address.sin_addr.s_addr));
 
     // Establish a connection to address on client_socket
     connect(client_socket, (struct sockaddr *) &address, sizeof(address));
