@@ -14,7 +14,8 @@ void send_packet(int sock, int packet_size){
 
 
 void send_mul_packets(int sock, int packet_size, int amount){
-  
+  char message[256];
+  memset(message, 0, 256);
   int i = 0;
   while (recv(sock, message, 255, 0) > 0){
   {
