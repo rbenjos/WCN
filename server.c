@@ -25,11 +25,17 @@ int main(void)
     // Wait for client to connect, then open a socket
     int client_socket = accept(server_socket, NULL, NULL);
 
-    char message[] = "Hello, World!";
+    char message[256];
+    memset(message, 0, 256);
 
     // Send message to the client
     while(1){
-        send(client_socket, message, strlen(message), 0);    
+        send(client_socket, "Hello, World!", strlen("Hello, World!"), 0);
+        while (recv(client_socket, message, 255, 0) > 0){
+            printf("%s\n", message);
+            fflush(stdout);
+            send(client_socket, "It works!", strlen("It works!"), 0);
+        }
     }
     
     // Close the client socket
