@@ -54,7 +54,7 @@ int main() {
     
     // Sending a response back to the client
     send(new_socket, "EXPERIMENT COMPLETE", strlen("EXPERIMENT COMPLETE"), 0);
-    printf("EXPERIMENT COMPLETE, SHUTTING DOWN"\n");
+    printf("EXPERIMENT COMPLETE, SHUTTING DOWN\n");
 
     // Closing the connected socket
     close(new_socket);
