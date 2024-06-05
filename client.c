@@ -6,6 +6,13 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 
+void send_packet(int sock, int packet_size){
+  char *packet;
+  packet = (char *) malloc(packet_size);
+  send(sock, packet, packet_size, 0);
+}
+
+
 void send_mul_packets(int sock, int packet_size, int amount){
   for (int i=0; i<amount+1; i++)
   {
@@ -13,11 +20,6 @@ void send_mul_packets(int sock, int packet_size, int amount){
   }
 } 
 
-void send_packet(int sock, int packet_size){
-  char *packet;
-  packet = (char *) malloc(packet_size);
-  send(sock, packet, packet_size, 0);
-}
 
 
 int main(void)
