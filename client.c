@@ -13,8 +13,7 @@ void send_large_message(int sock, char *packet, int message_len)
   int bytes_sent_now = 0;
   while (bytes_sent_total < message_len)
     {
-      bytes_sent_now = send(sock, &packet[ bytes_sent_total ],
-                            message_len - bytes_sent_total, 0);
+      bytes_sent_now = send(sock, &packet[ bytes_sent_total ], message_len - bytes_sent_total, 0);
       if (bytes_sent_now == -1)
         {
           printf("Error sending chunk of size %d\n", message_len);
@@ -25,8 +24,7 @@ void send_large_message(int sock, char *packet, int message_len)
     }
 }
 
-void
-send_packet_multiple_times(int sock, char *packet, int packet_size, int send_count)
+void send_packet_multiple_times(int sock, char *packet, int packet_size, int send_count)
 {
   for (int j = 0; j < send_count; j++)
     {
@@ -111,8 +109,7 @@ int main()
     }
 
   serv_addr.sin_family = AF_INET;  // Address family: IPv4
-  serv_addr
-      .sin_port = htons(PORT);  // Convert the port number to network byte order
+  serv_addr.sin_port = htons(PORT);  // Convert the port number to network byte order
 
   // Convert IPv4 address from text to binary form
   if (inet_pton(AF_INET, "132.65.164.101", &serv_addr.sin_addr) <= 0)
