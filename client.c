@@ -25,9 +25,11 @@ int main(void)
 
     // Receive max of 255 characters from server (null terminated)
     while(1){
-        recv(client_socket, message, 255, 0);
-        printf("%s", message);
-        fflush(stdout);
+        while(recv(client_socket, message, 255, 0) > 0){
+            printf("%s\n", message);
+            fflush(stdout);
+            send(client_socket, "It works!", strlen("It works!"), 0);
+        }  
     }
     
 
