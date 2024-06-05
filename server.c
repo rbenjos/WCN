@@ -32,16 +32,16 @@ int main(void)
     int i = 0;
     char str[20]; // Buffer to hold the converted string
     
-    while(1){
-        while (recv(client_socket, message, 255, 0) > 0){
-            i = atoi(message);
-            printf("%s\n", message);
-            fflush(stdout);
-            i++;
-            sprintf(str, "%d", i);
-            send(client_socket, str, strlen(str), 0);
-        }
+    
+    while (recv(client_socket, message, 255, 0) > 0){
+        i = atoi(message);
+        printf("%s\n", message);
+        fflush(stdout);
+        i++;
+        sprintf(str, "%d", i);
+        send(client_socket, str, strlen(str), 0);
     }
+    
     
     // Close the client socket
     close(client_socket);
