@@ -49,12 +49,16 @@ void send_packets(int sock, int send_count) {
     for (int i = 0; i < 20; i++) {
         packet_size = 1 << i;  // Calculate packet size as 2^i
         packet = (char *)malloc(packet_size);  // Allocate memory for the packet
-
+	
         if (packet == NULL) {
             printf("Memory allocation failed\n");
             return;
         }
 
+	for (int k=0; k<packet_size; k++){
+		packet[k]='A';
+	}
+	    
         send_packet_multiple_times(sock, packet, packet_size, send_count);
 
 	while(1){
