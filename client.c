@@ -46,7 +46,7 @@ int main(void)
         fflush(stdout);
         i++;
         sprintf(str, "%d", i);
-        send_packet(int sock, int i);
+        send_packet(int client_socket, int i);
     
     }
     
