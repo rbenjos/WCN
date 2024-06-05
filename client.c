@@ -48,12 +48,11 @@ int main(void)
     memset(message, 0, 256);
     send(client_socket, "STARTING", strlen("STARTING"), 0);
 
-    
-    while (recv(client_socket, message, 255, 0) > 0){
-        printf("%s\n", message);
-        fflush(stdout);
-        send_mul_packets(client_socket, 16,20);
-        break;
+    recv(client_socket, message, 255, 0) > 0);
+    printf("%s\n", message);
+    fflush(stdout);
+    send_mul_packets(client_socket, 16,20);
+       
     
     }
     
