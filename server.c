@@ -14,7 +14,6 @@ int main() {
     struct sockaddr_in address;
     int addrlen = sizeof(address);
     char buffer[1<<20] = {0};  // Buffer to store incoming data from the client
-    char *hello = "Hello from server";  // Message to send back to the client
 
     // Creating socket file descriptor
     if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
@@ -44,25 +43,21 @@ int main() {
         exit(EXIT_FAILURE);
     }
     
-    while (strcmp(buffer,"END") != 0){
-        valread = read(new_socket, buffer, 1<<20);
-        if (strcmp(buffer,"MESSAGE COMPLETE") == 0){
-            printf("Received: %s\n", buffer);
-	    fflush(stdout);
+    while (strcmp(buffer,"EXPERIMENT COMPLETE") != 0){
+        valread = read(new_socket, buffer, 1<<20); // Reading data from the client
+	fwrite(buffer, 1, 5, stdout);
+	fflush(stdout);
+        if (strcmp(buffer,"PHASE COMPLETE") == 0){
             send(new_socket, "RECEIVED", strlen("RECEIVED"), 0);
         }    
     }
     
-    // Reading data from the client
-    printf("Received: %s\n", buffer);
-
     // Sending a response back to the client
-    send(new_socket, hello, strlen(hello), 0);
-    printf("Hello message sent\n");
+    send(new_socket, "EXPERIMENT COMPLETE", strlen(hello), 0);
+    printf("EXPERIMENT COMPLETE, SHUTTING DOWN"\n");
 
     // Closing the connected socket
     close(new_socket);
-    // Closing the listening socket
     shutdown(server_fd, SHUT_RDWR);
     return 0;
 }
