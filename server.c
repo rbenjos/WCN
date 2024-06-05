@@ -30,7 +30,6 @@ int main(void)
 
     // Send message to the client
     while(1){
-        send(client_socket, "Hello, World!", strlen("Hello, World!"), 0);
         while (recv(client_socket, message, 255, 0) > 0){
             printf("%s\n", message);
             fflush(stdout);
