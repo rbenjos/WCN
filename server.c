@@ -34,11 +34,12 @@ int main(void)
     
     while(1){
         while (recv(client_socket, message, 255, 0) > 0){
+            i = atoi(message);
             printf("%s\n", message);
-            fflush(stdout);          
+            fflush(stdout);
+            i++;
             sprintf(str, "%d", i);
             send(client_socket, str, strlen(str), 0);
-            i++;
         }
     }
     
