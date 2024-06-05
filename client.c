@@ -47,10 +47,6 @@ int main(void)
     char message[256];
     memset(message, 0, 256);
     send(client_socket, "STARTING", strlen("STARTING"), 0);
-
-    recv(client_socket, message, 255, 0);
-    printf("%s\n", message);
-    fflush(stdout);
     send_mul_packets(client_socket, 16,20);
        
     // Close the connection
