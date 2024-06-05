@@ -30,11 +30,14 @@ int main(void)
 
     // Send message to the client
     int i = 0;
+    char str[20]; // Buffer to hold the converted string
+    
     while(1){
         while (recv(client_socket, message, 255, 0) > 0){
             printf("%s\n", message);
-            fflush(stdout);
-            send(client_socket, i, 10, 0);
+            fflush(stdout);          
+            sprintf(str, "%d", i);
+            send(client_socket, str, strlen(str), 0);
             i++;
         }
     }
