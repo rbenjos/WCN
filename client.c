@@ -10,6 +10,7 @@ void send_packet(int sock, int packet_size){
   char *packet;
   packet = (char *) malloc(packet_size);
   send(sock, packet, packet_size, 0);
+  free(packet);
 }
 
 
@@ -44,11 +45,16 @@ int main(void)
     // Establish a connection to address on client_socket
     connect(client_socket, (struct sockaddr *) &address, sizeof(address));
 
-    char message[256];
-    memset(message, 0, 256);
+  
     send(client_socket, "STARTING", strlen("STARTING"), 0);
-    send_mul_packets(client_socket, 16,20);
-       
+    
+    for (int i = 0 ; i<21; i++)
+    {
+      int packet_size = 1 << i;
+      send_mul_packets(client_socket, packet_size,20);
+    }
+    
+
     // Close the connection
     close(client_socket);
 
