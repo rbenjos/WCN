@@ -32,9 +32,14 @@ void send_packet_multiple_times(int sock, char *packet, int packet_size, int sen
 		if(send(sock, packet, packet_size, 0) != packet_size) {
             printf("Error sending packet of size %d\n", packet_size);
 	    fflush(stdout);
+	    while(1){
+		    read(sock, buffer, 1024);
+		    if (strcmp(buffer,"PACKET ARRIVED") == 0){
+			break;
+	    }
             return;
         }}
-    }
+    }}
 
     send(sock,"PHASE COMPLETE",strlen("PHASE COMPLETE"),0);	
     printf("Sent %d packets of size %d bytes\n", send_count, packet_size);
