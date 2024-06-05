@@ -45,7 +45,7 @@ int main() {
     
     while (strcmp(buffer,"EXPERIMENT COMPLETE") != 0){
         valread = read(new_socket, buffer, 1<<20); // Reading data from the client
-	fwrite(buffer, 1, 5, stdout);
+	printf("Received: %s\n", buffer);
 	fflush(stdout);
         if (strcmp(buffer,"PHASE COMPLETE") == 0){
             send(new_socket, "RECEIVED", strlen("RECEIVED"), 0);
