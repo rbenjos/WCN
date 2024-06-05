@@ -6,7 +6,12 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 
-
+void send_mul_packets(int sock, int packet_size, int amount){
+  for (int i=0; i<amount+1, i++)
+  {
+    send_packet(sock, packet_size);
+  }
+} 
 
 void send_packet(int sock, int packet_size){
   char *packet;
@@ -37,7 +42,8 @@ int main(void)
     while (recv(client_socket, message, 255, 0) > 0){
         printf("%s\n", message);
         fflush(stdout);
-        send_packet(client_socket, 16);
+        send_mul_packets(client_socket, 16,20);
+        break;
     
     }
     
