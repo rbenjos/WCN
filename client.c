@@ -6,6 +6,14 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 
+
+
+void send_packet(int sock, int packet_size){
+  char packet[packet_size] = {0};
+  send(sock, packet, packet_size, 0)
+}
+
+
 int main(void)
 {
     int client_socket = socket(AF_INET, SOCK_STREAM, 0);
@@ -38,7 +46,7 @@ int main(void)
         fflush(stdout);
         i++;
         sprintf(str, "%d", i);
-        send(client_socket, str, strlen(str), 0);
+        send_packet(int sock, int i);
     
     }
     
