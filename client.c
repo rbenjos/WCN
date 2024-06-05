@@ -10,7 +10,7 @@
 
 void send_packet(int sock, int packet_size){
   char packet[packet_size] = {0};
-  send(sock, packet, packet_size, 0)
+  send(sock, packet, packet_size, 0);
 }
 
 
