@@ -47,6 +47,7 @@ int main() {
         valread = read(new_socket, buffer, 1<<20); // Reading data from the client
 	printf("Received: %s\n", buffer);
 	fflush(stdout);
+	send(new_socket, "PACKET ARRIVED", strlen("PACKET ARRIVED"), 0);    
         if (strcmp(buffer,"PHASE COMPLETE") == 0){
             send(new_socket, "RECEIVED", strlen("RECEIVED"), 0);
         }    
