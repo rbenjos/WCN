@@ -16,7 +16,7 @@ void send_packet(int sock, int packet_size){
 void send_mul_packets(int sock, int packet_size, int amount){
   
   int i = 0;
-  while (recv(client_socket, message, 255, 0) > 0){
+  while (recv(sock, message, 255, 0) > 0){
   {
     i++;
     if (i>amount){break;}
