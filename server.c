@@ -35,7 +35,7 @@ int main(void)
     
     while (recv(client_socket, message, 255, 0) > 0){
         i++;
-        sprintf(str,"%d",i)
+        sprintf(str,"%d",i);
         send(client_socket, str, strlen(str), 0);
     }
     
