@@ -10,7 +10,7 @@
 
 void send_packet(int sock, int packet_size){
   char *packet;
-  packet = (char *) calloc(packet_size);
+  packet = (char *) malloc(packet_size);
   send(sock, packet, packet_size, 0);
 }
 
