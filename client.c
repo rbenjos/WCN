@@ -24,13 +24,22 @@ int main(void)
     memset(message, 0, 256);
 
     
-    send(client_socket, "First Message", strlen("First Message"), 0);
+    
+
+    int i = 0;
+    char str[20]; // Buffer to hold the converted string
+    sprintf(str, "%d", i);
+    send(client_socket, str, strlen(str), 0);
+
     while(1){
-        while(recv(client_socket, message, 255, 0) > 0){
+        while (recv(client_socket, message, 255, 0) > 0){
+            i = atoi(message);
             printf("%s\n", message);
             fflush(stdout);
-            send(client_socket, "It works!", strlen("It works!"), 0);
-        }  
+            i++;
+            sprintf(str, "%d", i);
+            send(client_socket, str, strlen(str), 0);
+        }
     }
     
 
