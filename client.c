@@ -53,11 +53,6 @@ int main(void)
     fflush(stdout);
     send_mul_packets(client_socket, 16,20);
        
-    
-    }
-    
-    
-
     // Close the connection
     close(client_socket);
 
