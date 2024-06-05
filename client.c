@@ -7,7 +7,7 @@
 #include <arpa/inet.h>
 
 void send_mul_packets(int sock, int packet_size, int amount){
-  for (int i=0; i<amount+1, i++)
+  for (int i=0; i<amount+1; i++)
   {
     send_packet(sock, packet_size);
   }
