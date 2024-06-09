@@ -6,47 +6,19 @@
 #include <sys/types.h>
 #include <arpa/inet.h>
 
-void send_large_message (int sock, char *packet, int message_len) {
-  int bytes_sent_total = 0;
-  int bytes_sent_now = 0;
-  char message[256];
-  int i = 0;
-  memset(message, 0, 256);
-  while (bytes_sent_total < message_len) {
-    bytes_sent_now = send(sock, &packet[bytes_sent_total], message_len - bytes_sent_total, 0);
-    printf("%s - %d\n","sent",bytes_sent_now);
-    i++;
-    if (bytes_sent_now == -1) {
-      printf("Error sending chunk of size %d\n", message_len);
-      fflush(stdout);
-      break;
-    }
-    bytes_sent_total += bytes_sent_now;
-//    recv(sock, message, 255, 0);
-  }
-}
 
 void send_packet (int sock, int packet_size) {
   char *packet;
   packet = (char *) malloc(packet_size);
-//  if(packet_size > 1<<8){
-//    send_large_message(sock,packet,packet_size);
-//  }else{
-    int x = send(sock, packet, packet_size, 0);
-    printf("%s - %d\n","sent",x);
-
-//  }
+  int bytes_sent = send(sock, packet, packet_size, 0);
+  printf("%s - %d\n","sent",bytes_sent);
   free(packet);
 }
 
 void send_mul_packets (int sock, int packet_size, int amount) {
   char message[256];
   memset(message, 0, 256);
-  int i = 0;
-  while (1) {
-
-    i++;
-    if (i > amount) { break; }
+  for(int i = 0; i < amount; i++) {
     send_packet(sock, packet_size);
   }
   send(sock, "FINISHED", strlen("FINISHED"), 0);
@@ -74,11 +46,9 @@ int main (void) {
     send_mul_packets(client_socket, packet_size, 20);
   }
   send(client_socket, "COMPLETE", strlen("COMPLETE"), 0);
-
-
-
+  
   // Close the connection
-//  close(client_socket);
+  close(client_socket);
 
   return 0;
 }
