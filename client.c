@@ -11,7 +11,7 @@ void send_packet (int sock, int packet_size) {
   char *packet;
   packet = (char *) malloc(packet_size);
   int bytes_sent = send(sock, packet, packet_size, 0);
-  printf("%s - %d\n","sent",bytes_sent);
+//  printf("%s - %d\n","sent",bytes_sent);
   free(packet);
 }
 
@@ -20,8 +20,14 @@ void send_mul_packets (int sock, int packet_size, int amount) {
   memset(message, 0, 256);
   for(int i = 0; i < amount; i++) {
     send_packet(sock, packet_size);
+    recv(sock, message, 256, 0);
   }
   send(sock, "FINISHED", strlen("FINISHED"), 0);
+//  printf("%s\n","sented");
+//  fflush(stdout);
+  recv(sock, message, 256, 0);
+//  printf("%s\n","not receved");
+//  fflush(stdout);
   printf("%s - %d\n", message, packet_size);
   fflush(stdout);
 }
@@ -38,15 +44,19 @@ int main (void) {
 
   // Establish a connection to address on client_socket
   connect(client_socket, (struct sockaddr *) &address, sizeof(address));
+  int window_size = 1024 * 1024; // 1 MB
+  setsockopt(client_socket, SOL_SOCKET, SO_RCVBUF, &window_size, sizeof(window_size));
+  setsockopt(client_socket, SOL_SOCKET, SO_SNDBUF, &window_size, sizeof(window_size));
+//  send(client_socket, "STARTING", strlen("STARTING"), 0);
 
-  send(client_socket, "STARTING", strlen("STARTING"), 0);
-
-  for (int i = 0; i < 21; i++) {
+  for (int i = 0; i <= 20; i++) {
     int packet_size = 1 << i;
     send_mul_packets(client_socket, packet_size, 20);
   }
   send(client_socket, "COMPLETE", strlen("COMPLETE"), 0);
-  
+
+    printf("%s\n","I AM COMPLETE!!");
+
   // Close the connection
   close(client_socket);
 
