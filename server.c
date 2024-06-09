@@ -38,9 +38,9 @@ int main(void)
     
     
     while (1){
-        int x = recv(client_socket, message, 1024*1024, 0);
-        printf("%s - %d - %d\n", message, i, x);
-        message[x] = '\0';
+        int bytes_sent = recv(client_socket, message, 1024*1024, 0);
+        printf("%s - %d - %d\n", message, i, bytes_sent);
+        message[bytes_sent] = '\0';
         i++;
         sprintf(str,"%d",i);
         send(client_socket, str, strlen(str), 0);
