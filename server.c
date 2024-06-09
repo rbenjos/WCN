@@ -35,23 +35,32 @@ int main(void)
     // Send message to the client
     int i = 0;
     char str[20]; // Buffer to hold the converted string
-    
+
+//    recv(client_socket, message, 255, 0);
+//    printf("%s\n", message);
+//    fflush(stdout);
     
     while (1){
         int bytes_sent = recv(client_socket, message, 1024*1024, 0);
-        printf("%s - %d - %d\n", message, i, bytes_sent);
-        message[bytes_sent] = '\0';
+//        printf("%s - %d - %d\n", message, i, bytes_sent);
+        fflush(stdout);
         i++;
-        sprintf(str,"%d",i);
-        send(client_socket, str, strlen(str), 0);
+//        sprintf(str,"%d",i);
+        if (strcmp("FINISHED", message) == 0) {
+          printf("%s\n", message);
+          fflush(stdout);
+          send(client_socket, "FINISHED", strlen("FINISHED"), 0);
+          continue;
+        }
         if (strcmp(message,"COMPLETE") == 0){
           printf("%s\n", message);
           fflush(stdout);
           break;
         }
+        send(client_socket, "RECEIVED", strlen("RECEIVED"), 0);
     }
 
-    printf("%s - %d\n", message, i);
+//    printf("%s - %d\n", message, i);
     // Close the client socket
     close(client_socket);
 
