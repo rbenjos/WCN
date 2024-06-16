@@ -1,67 +1,76 @@
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
-#include <sys/socket.h>
-#include <sys/types.h>
 #include <arpa/inet.h>
+#include <time.h>
 
+#define PORT 8080
+#define MAX_MESSAGE_SIZE 1024 * 1024 // 1MB
+#define NUM_MESSAGES 1000
+#define WARM_UP_CYCLES 10
 
-void send_packet (int sock, int packet_size) {
-  char *packet;
-  packet = (char *) malloc(packet_size);
-  send(sock, packet, packet_size, 0);
-  send(sock, "PACKET FINISH", strlen("PACKET FINISH"), 0);
-
-//  printf("%s - %d\n","sent",bytes_sent);
-  free(packet);
+void error(const char *msg) {
+  perror(msg);
+  exit(1);
 }
 
-void send_mul_packets (int sock, int packet_size, int amount) {
-  char message[256];
-  memset(message, 0, 256);
+void send_messages(int sock, size_t message_size) {
+  char *buffer = (char *)malloc(message_size);
+  memset(buffer, 'A', message_size);
 
-  for(int i = 0; i < amount; i++) {
-    send_packet(sock, packet_size);
-    recv(sock, message, 256, 0);
-  }
-  send(sock, "FINISHED", strlen("FINISHED"), 0);
-//  printf("%s\n","sented");
-//  fflush(stdout);
-  recv(sock, message, 256, 0);
-//  printf("%s\n","not receved");
-//  fflush(stdout);
-  printf("%s - %d\n", message, packet_size);
-  fflush(stdout);
+  for (int i = 0; i < NUM_MESSAGES; i++) {
+      if (send(sock, buffer, message_size, 0) == -1) {
+          error("send failed");
+        }
+    }
+
+  free(buffer);
 }
 
-int main (void) {
-  int client_socket = socket(AF_INET, SOCK_STREAM, 0);
+int main(int argc, char const *argv[]) {
+  if (argc != 2) {
+      fprintf(stderr, "Usage: %s <server-ip>\n", argv[0]);
+      exit(EXIT_FAILURE);
+    }
 
-  struct sockaddr_in address;
-  address.sin_family = AF_INET;
-  address.sin_port = htons(8080);
+  const char *server_ip = argv[1];
+  int sock = 0;
+  struct sockaddr_in serv_addr;
 
-  // Set address to server address
-  inet_aton("132.65.164.101", (struct in_addr *) &(address.sin_addr.s_addr));
+  if ((sock = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+      error("Socket creation error");
+    }
 
-  // Establish a connection to address on client_socket
-  connect(client_socket, (struct sockaddr *) &address, sizeof(address));
-  int window_size = 1024 * 1024; // 1 MB
-  setsockopt(client_socket, SOL_SOCKET, SO_RCVBUF, &window_size, sizeof(window_size));
-  setsockopt(client_socket, SOL_SOCKET, SO_SNDBUF, &window_size, sizeof(window_size));
-//  send(client_socket, "STARTING", strlen("STARTING"), 0);
+  serv_addr.sin_family = AF_INET;
+  serv_addr.sin_port = htons(PORT);
 
-  for (int i = 0; i <= 20; i++) {
-    int packet_size = 1 << i;
-    send_mul_packets(client_socket, packet_size, 20);
-  }
-  send(client_socket, "COMPLETE", strlen("COMPLETE"), 0);
+  if (inet_pton(AF_INET, server_ip, &serv_addr.sin_addr) <= 0) {
+      error("Invalid address/ Address not supported");
+    }
 
-  printf("%s\n","I AM COMPLETE!!");
+  if (connect(sock, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
+      error("Connection failed");
+    }
 
-  // Close the connection
-  close(client_socket);
+  for (int i = 0; i < WARM_UP_CYCLES; i++) {
+      send_messages(sock, 1); // Warm-up with 1 byte messages
+    }
 
+  for (size_t message_size = 1; message_size <= MAX_MESSAGE_SIZE; message_size *= 2) {
+      struct timespec start, end;
+      clock_gettime(CLOCK_MONOTONIC, &start);
+
+      send_messages(sock, message_size);
+
+      clock_gettime(CLOCK_MONOTONIC, &end);
+      double elapsed_time = end.tv_sec - start.tv_sec + (end.tv_nsec - start.tv_nsec) / 1e9;
+
+      double throughput = (message_size * NUM_MESSAGES) / (elapsed_time * 1024 * 1024); // MB/s
+
+      printf("%zu\t%.2f\tMB/s\n", message_size, throughput);
+    }
+
+  close(sock);
   return 0;
 }

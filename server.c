@@ -1,76 +1,51 @@
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
-#include <sys/socket.h>
-#include <sys/types.h>
 #include <arpa/inet.h>
 
-int main(void)
-{
-    int server_socket = socket(AF_INET, SOCK_STREAM, 0);
+#define PORT 8080
+#define BUFFER_SIZE 1024 * 1024 // 1MB
 
-    struct sockaddr_in address;
-    address.sin_family = AF_INET;
-    address.sin_port = htons(8080); // Port 8080
-    address.sin_addr.s_addr = INADDR_ANY;
+void error(const char *msg) {
+  perror(msg);
+  exit(1);
+}
 
-    // Bind server_socket to address
-    bind(server_socket, (struct sockaddr *) &address, sizeof(address));
+int main() {
+  int server_fd, new_socket;
+  struct sockaddr_in address;
+  int addrlen = sizeof(address);
+  char buffer[BUFFER_SIZE] = {0};
 
-    // Listen for clients and allow the accept function to be used
-    // Allow 4 clients to be queued while the server processes
-    listen(server_socket, 4);
-
-    // Wait for client to connect, then open a socket
-    int client_socket = accept(server_socket, NULL, NULL);
-
-    int window_size = 1024 * 1024; // 1 MB
-    setsockopt(client_socket, SOL_SOCKET, SO_RCVBUF, &window_size, sizeof(window_size));
-    setsockopt(client_socket, SOL_SOCKET, SO_SNDBUF, &window_size, sizeof(window_size));
-
-    char message[1024*1024];
-    memset(message, 0, 1024*1024);
-
-    // Send message to the client
-    int i = 0;
-    char str[20]; // Buffer to hold the converted string
-
-//    recv(client_socket, message, 255, 0);
-//    printf("%s\n", message);
-//    fflush(stdout);
-    
-    while (1){
-        int bytes_sent = recv(client_socket, message, 1024*1024, 0);
-//          printf("%s - %d - %d\n", message, i, bytes_sent);
-//        fflush(stdout);
-        i++;
-//        sprintf(str,"%d",i);
-        if (strcmp("PACKET FINISH", message) == 0) {
-            printf("%s\n", message);
-            fflush(stdout);
-            send(client_socket, "PACKET FINISH", strlen("PACKET FINISH"), 0);
-            continue;
-          }
-
-        if (strcmp("FINISHED", message) == 0) {
-            printf("%s\n", message);
-            fflush(stdout);
-            send(client_socket, "FINISHED", strlen("FINISHED"), 0);
-            continue;
-          }
-
-        if (strcmp(message,"COMPLETE") == 0){
-          printf("%s\n", message);
-          fflush(stdout);
-          break;
-        }
-//        send(client_socket, "RECEIVED", strlen("RECEIVED"), 0);
+  if ((server_fd = socket(AF_INET, SOCK_STREAM, 0)) == 0) {
+      error("socket failed");
     }
 
-//    printf("%s - %d\n", message, i);
-    // Close the client socket
-    close(client_socket);
+  address.sin_family = AF_INET;
+  address.sin_addr.s_addr = INADDR_ANY;
+  address.sin_port = htons(PORT);
 
-    return 0;
+  if (bind(server_fd, (struct sockaddr *)&address, sizeof(address)) < 0) {
+      error("bind failed");
+    }
+
+  if (listen(server_fd, 3) < 0) {
+      error("listen failed");
+    }
+
+  if ((new_socket = accept(server_fd, (struct sockaddr* )&address, (socklen_t*)&addrlen)) < 0) {
+      error("accept failed");
+    }
+
+  while (1) {
+      ssize_t bytes_read = read(new_socket, buffer, BUFFER_SIZE);
+      if (bytes_read <= 0) {
+          break;
+        }
+    }
+
+  close(new_socket);
+  close(server_fd);
+  return 0;
 }
