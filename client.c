@@ -33,9 +33,13 @@ void send_messages(int sock, int message_size) {
   free(buffer);
 }
 
-int main() {
+int main(int argc, char const *argv[]) {
+  if (argc != 2) {
+      fprintf(stderr, "Usage: %s <server-ip>\n", argv[0]);
+      exit(EXIT_FAILURE);
+    }
 
-  const char *server_ip = "132.65.164.101";
+  const char *server_ip = argv[2];
   int sock = 0;
   struct sockaddr_in serv_addr;
 
