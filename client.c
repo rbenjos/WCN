@@ -15,26 +15,27 @@ void error(const char *msg) {
   exit(1);
 }
 
-void send_messages(int sock, size_t message_size) {
+void send_messages(int sock, int message_size) {
   char *buffer = (char *)malloc(message_size);
   memset(buffer, 'A', message_size);
+  char ack[4]; // Buffer to receive acknowledgment
 
   for (int i = 0; i < NUM_MESSAGES; i++) {
       if (send(sock, buffer, message_size, 0) == -1) {
           error("send failed");
+        }
+      // Wait for acknowledgment from the server
+      if (recv(sock, ack, sizeof(ack), 0) == -1) {
+          error("recv ACK failed");
         }
     }
 
   free(buffer);
 }
 
-int main(int argc, char const *argv[]) {
-  if (argc != 2) {
-      fprintf(stderr, "Usage: %s <server-ip>\n", argv[0]);
-      exit(EXIT_FAILURE);
-    }
+int main() {
 
-  const char *server_ip = argv[1];
+  const char *server_ip = "132.65.164.101";
   int sock = 0;
   struct sockaddr_in serv_addr;
 
@@ -57,7 +58,7 @@ int main(int argc, char const *argv[]) {
       send_messages(sock, 1); // Warm-up with 1 byte messages
     }
 
-  for (size_t message_size = 1; message_size <= MAX_MESSAGE_SIZE; message_size *= 2) {
+  for (int message_size = 1; message_size <= MAX_MESSAGE_SIZE; message_size *= 2) {
       struct timespec start, end;
       clock_gettime(CLOCK_MONOTONIC, &start);
 
@@ -68,7 +69,7 @@ int main(int argc, char const *argv[]) {
 
       double throughput = (message_size * NUM_MESSAGES) / (elapsed_time * 1024 * 1024); // MB/s
 
-      printf("%zu\t%.2f\tMB/s\n", message_size, throughput);
+      printf("%d\t%.2f\tMB/s\n", message_size, throughput);
     }
 
   close(sock);
