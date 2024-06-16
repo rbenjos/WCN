@@ -42,22 +42,30 @@ int main(void)
     
     while (1){
         int bytes_sent = recv(client_socket, message, 1024*1024, 0);
-//        printf("%s - %d - %d\n", message, i, bytes_sent);
-        fflush(stdout);
+//          printf("%s - %d - %d\n", message, i, bytes_sent);
+//        fflush(stdout);
         i++;
 //        sprintf(str,"%d",i);
+        if (strcmp("PACKET FINISH", message) == 0) {
+            printf("%s\n", message);
+            fflush(stdout);
+            send(client_socket, "PACKET FINISH", strlen("PACKET FINISH"), 0);
+            continue;
+          }
+
         if (strcmp("FINISHED", message) == 0) {
-          printf("%s\n", message);
-          fflush(stdout);
-          send(client_socket, "FINISHED", strlen("FINISHED"), 0);
-          continue;
-        }
+            printf("%s\n", message);
+            fflush(stdout);
+            send(client_socket, "FINISHED", strlen("FINISHED"), 0);
+            continue;
+          }
+
         if (strcmp(message,"COMPLETE") == 0){
           printf("%s\n", message);
           fflush(stdout);
           break;
         }
-        send(client_socket, "RECEIVED", strlen("RECEIVED"), 0);
+//        send(client_socket, "RECEIVED", strlen("RECEIVED"), 0);
     }
 
 //    printf("%s - %d\n", message, i);

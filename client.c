@@ -10,7 +10,9 @@
 void send_packet (int sock, int packet_size) {
   char *packet;
   packet = (char *) malloc(packet_size);
-  int bytes_sent = send(sock, packet, packet_size, 0);
+  send(sock, packet, packet_size, 0);
+  send(sock, "PACKET FINISH", strlen("PACKET FINISH"), 0);
+
 //  printf("%s - %d\n","sent",bytes_sent);
   free(packet);
 }
@@ -18,6 +20,7 @@ void send_packet (int sock, int packet_size) {
 void send_mul_packets (int sock, int packet_size, int amount) {
   char message[256];
   memset(message, 0, 256);
+
   for(int i = 0; i < amount; i++) {
     send_packet(sock, packet_size);
     recv(sock, message, 256, 0);
@@ -55,7 +58,7 @@ int main (void) {
   }
   send(client_socket, "COMPLETE", strlen("COMPLETE"), 0);
 
-    printf("%s\n","I AM COMPLETE!!");
+  printf("%s\n","I AM COMPLETE!!");
 
   // Close the connection
   close(client_socket);
