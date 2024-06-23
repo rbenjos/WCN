@@ -47,8 +47,8 @@ void mesure_throughput(int sock)
       send_messages(sock, message_size);
       clock_gettime(CLOCK_MONOTONIC, &end);
       double elapsed_time = end.tv_sec - start.tv_sec + (end.tv_nsec - start.tv_nsec) / 1e9;
-      double throughput = (message_size * NUM_MESSAGES) / (elapsed_time * 1024 * 1024); // MB/s
-      printf("%d\t%.2f\tMB/s\n", message_size, throughput);
+      double throughput = ((message_size * NUM_MESSAGES) / (elapsed_time * 1024 * 1024))*8;
+      printf("%d\t%.2f\tMb/s\n", message_size, throughput);
     }
 }
 
