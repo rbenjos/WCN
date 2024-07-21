@@ -860,7 +860,7 @@ int main(int argc, char *argv[])
 
             long long elapsed_time = end_time.tv_sec - start_time.tv_sec;
 
-            double byte_for_ms= ((double)1000 * (double)msg_size) / elapsed_time;
+            double byte_for_ms= ((double)ITERATIONS * (double)msg_size) / elapsed_time;
 
             printf("%-10d%.2f\n", msg_size, byte_for_ms);
         }
