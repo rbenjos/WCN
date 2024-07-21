@@ -50,12 +50,16 @@
 
 #define WC_BATCH (10)
 #define MAX_MESSAGE_SIZE 1024 * 1024
+#define ITERATIONS 1000
+#define DEFAULT_PORT 12345
+
+
+static int page_size;
+
 enum {
     PINGPONG_RECV_WRID = 1,
     PINGPONG_SEND_WRID = 2,
 };
-
-static int page_size;
 
 
 struct pingpong_context {
@@ -518,7 +522,6 @@ static int pp_post_recv(struct pingpong_context *ctx, int n)
 
     return i;
 }
-// todo: this
 static int pp_post_send(struct pingpong_context *ctx)
 {
     struct ibv_sge list = {
@@ -538,7 +541,6 @@ static int pp_post_send(struct pingpong_context *ctx)
 
     return ibv_post_send(ctx->qp, &wr, &bad_wr);
 }
-// todo: this
 int pp_wait_completions(struct pingpong_context *ctx, int iters)
 {
     int rcnt = 0, scnt = 0;
@@ -611,6 +613,30 @@ static void usage(const char *argv0)
     printf("  -g, --gid-idx=<gid index> local port gid index\n");
 }
 
+int client_warm_up(int iters, struct pingpong_context *ctx)
+{
+  for (int i = 0; i < iters ; i+= WC_BATCH) {
+      for (int j=0; j<WC_BATCH; j++) {
+          if (pp_post_send(ctx)) {
+              fprintf(stderr, "Client couldn't post send %d\n", i);
+              return 1;
+            }
+        }
+      pp_wait_completions(ctx, WC_BATCH);
+    }
+}
+
+int client_send_messages(int iters, struct pingpong_context *ctx){
+  for (int i = 0; i < iters ; i+= WC_BATCH) {
+      for (int j=0; j<WC_BATCH; j++) {
+          if (pp_post_send(ctx)) {
+              fprintf(stderr, "Client couldn't post send %d\n", i);
+              return 1;
+            }
+        }
+  }
+}
+
 int main(int argc, char *argv[])
 {
     struct ibv_device      **dev_list;
@@ -620,12 +646,12 @@ int main(int argc, char *argv[])
     struct pingpong_dest    *rem_dest;
     char                    *ib_devname = NULL;
     char                    *servername;
-    int                      port = 12345;
+    int                      port = DEFAULT_PORT;
     int                      ib_port = 1;
     enum ibv_mtu             mtu = IBV_MTU_2048;
     int                      rx_depth = 100;
     int                      tx_depth = 100;
-    int                      iters = 1000;
+    int                      iters = ITERATIONS;
     int                      use_event = 0;
     int                      size = MAX_MESSAGE_SIZE;
     int                      sl = 0;
@@ -809,45 +835,37 @@ int main(int argc, char *argv[])
 
 
 
-    // todo: implement send ack after pp_wait_completions and implement
     printf("Size\tByte/ms\n");
     for (int msg_size = 1; msg_size <= MAX_MESSAGE_SIZE; msg_size *= 2)
     {
         // client
         if (servername) {
             ctx->size = msg_size;
-            // Warm up
-            for (int i = 0; i < iters ; i+= WC_BATCH) {
-                for (int j=0; j<WC_BATCH; j++) {
-                    if (pp_post_send(ctx)) {
-                        fprintf(stderr, "Client couldn't post send %d\n", i);
-                        return 1;
-                    }
-                }
-                pp_wait_completions(ctx, WC_BATCH);
-            }
-            pp_wait_completions(ctx, 1); // wait for ack from server
+            client_warm_up(iters, ctx);               // Warm up
 
-            // Real
-            gettimeofday(&start_time, NULL); // get current time
-            for (int i = 0; i < iters ; i+= WC_BATCH) {
-                for (int j=0; j<WC_BATCH; j++) {
-                    if (pp_post_send(ctx)) {
-                        fprintf(stderr, "Client couldn't post send %d\n", i);
-                        return 1;
-                    }
-                }
-                pp_wait_completions(ctx, WC_BATCH);
-            }
-            pp_wait_completions(ctx, 1); // wait for ack from server
+            pp_wait_completions(ctx, 1);         // get ack
+
+            gettimeofday(&start_time, NULL);      // get current time
+
+            client_send_messages(iters, ctx);        // run experiment
+
+            pp_wait_completions(ctx, 1);        // get ack
+
             gettimeofday(&end_time, NULL); // get current time
-            long long elapsed_time =
-                        (end_time.tv_sec - start_time.tv_sec) *
-                        1000000ll + (end_time.tv_usec - start_time.tv_usec);
-            double byte_for_ms= ((double)1000 * (double)msg_size) /
-                                elapsed_time;
+
+
+//            long long elapsed_time =
+//                        (end_time.tv_sec - start_time.tv_sec) *
+//                        1000000ll + (end_time.tv_usec - start_time.tv_usec);
+
+            long long elapsed_time = end_time.tv_sec - start_time.tv_sec;
+
+            double byte_for_ms= ((double)1000 * (double)msg_size) / elapsed_time;
+
             printf("%-10d%.2f\n", msg_size, byte_for_ms);
         }
+
+
         // server
         else {
             // Warm Up
