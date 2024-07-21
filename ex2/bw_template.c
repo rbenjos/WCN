@@ -521,7 +521,6 @@ static int pp_post_send(struct pingpong_context *ctx, int depth)
     if (ibv_post_send(ctx->qp, &wr, &bad_wr)){
         break;
       }
-
   return i;
 }
 
