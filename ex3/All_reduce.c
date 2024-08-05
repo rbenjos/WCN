@@ -796,7 +796,7 @@ int main(int argc, char *argv[])
       return 1;
 
   if (servername) {
-    ctx->size = message_size;
+    ctx->size = 1024;
     pp_post_recv(ctx, tx_depth);
     pp_post_send(ctx, tx_depth);
     pp_wait_completions(ctx, tx_depth);
