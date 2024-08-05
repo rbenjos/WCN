@@ -784,6 +784,7 @@ int main(int argc, char *argv[])
 
   if (servername)
     rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+    printf("%s","I just got nailed");
     rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
 
   if (!rem_dest)
