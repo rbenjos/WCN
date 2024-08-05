@@ -13,8 +13,6 @@
 #include <netdb.h>
 #include <time.h>
 #include <math.h>
-#include <limits.h>
-#include <sys/time.h>
 #include <infiniband/verbs.h>
 
 #define WC_BATCH 1
@@ -605,239 +603,206 @@ void warmup(struct pingpong_context *ctx, int depth , int server){
     }
 }
 
-void benchmark(struct pingpong_context *ctx, int depth , int server){
-  for (int w = 0; w < BENCHMARK_ITERS; w += depth)
-    {
-      if (server)
-        {
-          pp_post_recv(ctx, depth);
-        }
-      else
-        {
-          pp_post_send(ctx, depth);
-        }
-      pp_wait_completions(ctx, depth);
-    }
-}
-
-// Modify the pg_handle structure
-struct pg_handle {
-    struct pingpong_context *ctx;
-    struct pingpong_dest *rem_dest;
-    int rank;
-    int size;
-    char *servername;
-    int port;
-};
-
-int connect_process_group(char *servername, void **pg_handle)
-{
-  struct pg_handle *pg = malloc(sizeof(struct pg_handle));
-  if (!pg) {
-      fprintf(stderr, "Failed to allocate pg_handle\n");
-      return 1;
-    }
-
-  // Parse rank and size from environment variables
-  char *rank_str = getenv("OMPI_COMM_WORLD_RANK");
-  char *size_str = getenv("OMPI_COMM_WORLD_SIZE");
-  if (!rank_str || !size_str) {
-      fprintf(stderr, "OMPI_COMM_WORLD_RANK or OMPI_COMM_WORLD_SIZE not set\n");
-      free(pg);
-      return 1;
-    }
-  pg->rank = atoi(rank_str);
-  pg->size = atoi(size_str);
-
-  pg->servername = strdup(servername);
-  pg->port = 18515;  // Use a fixed port for simplicity
-
-  // Initialize the context
-  struct ibv_device **dev_list;
-  struct ibv_device *ib_dev;
-  dev_list = ibv_get_device_list(NULL);
-  if (!dev_list) {
-      fprintf(stderr, "Failed to get IB devices list\n");
-      free(pg->servername);
-      free(pg);
-      return 1;
-    }
-
-  ib_dev = *dev_list;
-  if (!ib_dev) {
-      fprintf(stderr, "No IB devices found\n");
-      ibv_free_device_list(dev_list);
-      free(pg->servername);
-      free(pg);
-      return 1;
-    }
-
-  pg->ctx = pp_init_ctx(ib_dev, 4096, 10, 10, 1, 0, 0);  // Using default values
-  if (!pg->ctx) {
-      fprintf(stderr, "Failed to initialize context\n");
-      ibv_free_device_list(dev_list);
-      free(pg->servername);
-      free(pg);
-      return 1;
-    }
-
-  ibv_free_device_list(dev_list);
-
-  // Exchange connection information
-  struct pingpong_dest my_dest;
-  my_dest.lid = pp_get_local_lid(pg->ctx->context, 1);
-  my_dest.qpn = pg->ctx->qp->qp_num;
-  my_dest.psn = lrand48() & 0xffffff;
-  if (pg->rank == 0) {
-      pg->rem_dest = pp_server_exch_dest(pg->ctx, 1, IBV_MTU_1024, pg->port, 0, &my_dest, -1);
-    } else {
-      pg->rem_dest = pp_client_exch_dest(pg->servername, pg->port, &my_dest);
-    }
-
-  if (!pg->rem_dest) {
-      fprintf(stderr, "Failed to exchange connection information\n");
-      pp_close_ctx(pg->ctx);
-      free(pg->servername);
-      free(pg);
-      return 1;
-    }
-
-  if (pp_connect_ctx(pg->ctx, 1, my_dest.psn, IBV_MTU_1024, 0, pg->rem_dest, -1)) {
-      fprintf(stderr, "Failed to connect QPs\n");
-      free(pg->rem_dest);
-      pp_close_ctx(pg->ctx);
-      free(pg->servername);
-      free(pg);
-      return 1;
-    }
-
-  *pg_handle = pg;
-  return 0;
-}
-
-
 
 int main(int argc, char *argv[])
 {
-  void *pg_handle;
-  char *servername = NULL;
-  int op = 0;  // Default operation: sum
-  int datatype = 0;  // Default datatype: int
-  int iters = 1000;  // Default number of iterations
-  int size = 4096;   // Default buffer size
-  int i;
-  int rank = -1;
-  int num_processes = -1;
-  struct pg_handle *pg = NULL;
+  struct ibv_device      **dev_list;
+  struct ibv_device       *ib_dev;
+  struct pingpong_context *ctx;
+  struct pingpong_dest     my_dest;
+  struct pingpong_dest    *rem_dest;
+  char                    *ib_devname = NULL;
+  char                    *servername;
+  int                      port = DEFAULT_PORT;
+  int                      ib_port = 1;
+  enum ibv_mtu             mtu = IBV_MTU_2048;
+  int                      rx_depth = 100;
+  int                      tx_depth = 100;
+  int                      iters = BENCHMARK_ITERS;
+  int                      warm_up_iters = WARMUP_ITERS;
+  int                      use_event = 0;
+  int                      size = MAX_MSG_SIZE;
+  int                      sl = 0;
+  int                      gidx = -1;
+  char                     gid[33];
 
-  static struct option long_options[] = {
-      { .name = "server",   .has_arg = 1, .val = 's' },
-      { .name = "size",     .has_arg = 1, .val = 'z' },
-      { .name = "iters",    .has_arg = 1, .val = 'n' },
-      { .name = "op",       .has_arg = 1, .val = 'o' },
-      { .name = "datatype", .has_arg = 1, .val = 't' },
-      { .name = "rank",     .has_arg = 1, .val = 'k' },
-      { .name = "nproc",    .has_arg = 1, .val = 'N' },
-      { 0 }
-  };
+  srand48(getpid() * time(NULL));
 
   while (1) {
-      int c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:eg:k:N:", long_options, NULL);
+      int c;
+
+      static struct option long_options[] = {
+          { .name = "port",     .has_arg = 1, .val = 'p' },
+          { .name = "ib-dev",   .has_arg = 1, .val = 'd' },
+          { .name = "ib-port",  .has_arg = 1, .val = 'i' },
+          { .name = "size",     .has_arg = 1, .val = 's' },
+          { .name = "mtu",      .has_arg = 1, .val = 'm' },
+          { .name = "rx-depth", .has_arg = 1, .val = 'r' },
+          { .name = "iters",    .has_arg = 1, .val = 'n' },
+          { .name = "sl",       .has_arg = 1, .val = 'l' },
+          { .name = "events",   .has_arg = 0, .val = 'e' },
+          { .name = "gid-idx",  .has_arg = 1, .val = 'g' },
+          { 0 }
+      };
+
+      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:eg:", long_options, NULL);
       if (c == -1)
         break;
 
       switch (c) {
-          case 's':
-            servername = optarg;
-          break;
-          case 'z':
-            size = atoi(optarg);
-          break;
-          case 'n':
-            iters = atoi(optarg);
-          break;
-          case 'o':
-            if (!strcmp(optarg, "sum"))
-              op = 0;
-            else if (!strcmp(optarg, "max"))
-              op = 1;
-            else {
-                fprintf(stderr, "Invalid operation: %s\n", optarg);
-                return 1;
-              }
-          break;
-          case 't':
-            if (!strcmp(optarg, "int"))
-              datatype = 0;
-            else if (!strcmp(optarg, "float"))
-              datatype = 1;
-            else {
-                fprintf(stderr, "Invalid datatype: %s\n", optarg);
-                return 1;
-              }
-          break;
-          case 'k':
-            rank = strtol(optarg, NULL, 0);
-          break;
-          case 'N':
-            num_processes = strtol(optarg, NULL, 0);
-          break;
-          default:
-            fprintf(stderr, "Usage: %s -s <servername> [-z <size>] [-n <iters>] [-o <op>] [-t <datatype>]\n", argv[0]);
-          return 1;
-        }
-    }
-
-  if (!servername) {
-      fprintf(stderr, "Server name must be specified\n");
-      return 1;
-    }
-
-  // Connect process group
-  if (connect_process_group(servername, &pg_handle)) {
-      fprintf(stderr, "Failed to connect process group\n");
-      return 1;
-    }
-
-  struct pg_handle *pg = (struct pg_handle *)pg_handle;
-
-  // Allocate and initialize buffer
-  void *buffer = malloc(size);
-  if (!buffer) {
-      fprintf(stderr, "Failed to allocate buffer\n");
-      pg_close(pg_handle);
-      return 1;
-    }
-
-  // Perform All-Reduce operation
-  for (long int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
-      // Warmup
-      if (pg_all_reduce(pg, ctx->buf, ctx->buf, message_size, 0, 0)) {
-          fprintf(stderr, "Warmup all-reduce failed\n");
-          return 1;
-        }
-
-      // Benchmark
-      clock_t start_time = clock();
-      for (int i = 0; i < BENCHMARK_ITERS; i++) {
-          if (pg_all_reduce(pg, ctx->buf, ctx->buf, message_size, 0, 0)) {
-              fprintf(stderr, "Benchmark all-reduce failed\n");
+          case 'p':
+            port = strtol(optarg, NULL, 0);
+          if (port < 0 || port > 65535) {
+              usage(argv[0]);
               return 1;
             }
-        }
-      clock_t end_time = clock();
+          break;
 
-      // Print results (only from rank 0)
-      if (rank == 0) {
-          throughput(start_time, end_time, message_size);
+          case 'd':
+            ib_devname = strdup(optarg);
+          break;
+
+          case 'i':
+            ib_port = strtol(optarg, NULL, 0);
+          if (ib_port < 0) {
+              usage(argv[0]);
+              return 1;
+            }
+          break;
+
+          case 's':
+            size = strtol(optarg, NULL, 0);
+          break;
+
+          case 'm':
+            mtu = pp_mtu_to_enum(strtol(optarg, NULL, 0));
+          if (mtu < 0) {
+              usage(argv[0]);
+              return 1;
+            }
+          break;
+
+          case 'r':
+            rx_depth = strtol(optarg, NULL, 0);
+          break;
+
+          case 'n':
+            iters = strtol(optarg, NULL, 0);
+          break;
+
+          case 'l':
+            sl = strtol(optarg, NULL, 0);
+          break;
+
+          case 'e':
+            ++use_event;
+          break;
+
+          case 'g':
+            gidx = strtol(optarg, NULL, 0);
+          break;
+
+          default:
+            usage(argv[0]);
+          return 1;
         }
     }
 
-  // Cleanup
-  if (pg_close(pg)) {
-      fprintf(stderr, "Failed to close process group\n");
+  if (optind == argc - 1)
+    servername = strdup(argv[optind]);
+  else if (optind < argc) {
+      usage(argv[0]);
       return 1;
     }
 
+  page_size = sysconf(_SC_PAGESIZE);
+
+  dev_list = ibv_get_device_list(NULL);
+  if (!dev_list) {
+      perror("Failed to get IB devices list");
+      return 1;
+    }
+
+  if (!ib_devname) {
+      ib_dev = *dev_list;
+      if (!ib_dev) {
+          fprintf(stderr, "No IB devices found\n");
+          return 1;
+        }
+    } else {
+      int i;
+      for (i = 0; dev_list[i]; ++i)
+        if (!strcmp(ibv_get_device_name(dev_list[i]), ib_devname))
+          break;
+      ib_dev = dev_list[i];
+      if (!ib_dev) {
+          fprintf(stderr, "IB device %s not found\n", ib_devname);
+          return 1;
+        }
+    }
+
+  ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
+  if (!ctx)
+    return 1;
+
+  ctx->routs = pp_post_recv(ctx, ctx->rx_depth);
+  if (ctx->routs < ctx->rx_depth) {
+      fprintf(stderr, "Couldn't post receive (%d)\n", ctx->routs);
+      return 1;
+    }
+
+  if (use_event)
+    if (ibv_req_notify_cq(ctx->cq, 0)) {
+        fprintf(stderr, "Couldn't request CQ notification\n");
+        return 1;
+      }
+
+
+  if (pp_get_port_info(ctx->context, ib_port, &ctx->portinfo)) {
+      fprintf(stderr, "Couldn't get port info\n");
+      return 1;
+    }
+
+  my_dest.lid = ctx->portinfo.lid;
+  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
+      fprintf(stderr, "Couldn't get local LID\n");
+      return 1;
+    }
+
+  if (gidx >= 0) {
+      if (ibv_query_gid(ctx->context, ib_port, gidx, &my_dest.gid)) {
+          fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
+          return 1;
+        }
+    } else
+    memset(&my_dest.gid, 0, sizeof my_dest.gid);
+
+  my_dest.qpn = ctx->qp->qp_num;
+  my_dest.psn = lrand48() & 0xffffff;
+  inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
+
+
+  if (servername)
+    rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+    rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+
+  if (!rem_dest)
+    return 1;
+
+  inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
+
+  if (servername)
+    if (pp_connect_ctx(ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
+      return 1;
+
+  if (servername) {
+    ctx->size = message_size;
+    pp_post_recv(ctx, tx_depth);
+    pp_post_send(ctx, tx_depth);
+    pp_wait_completions(ctx, tx_depth);
+  }
+
+  ibv_free_device_list(dev_list);
+  free(rem_dest);
   return 0;
 }
