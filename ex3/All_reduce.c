@@ -595,132 +595,36 @@ static void throughput(clock_t start_time, clock_t end_time, long int message_si
 void warmup(struct pingpong_context *ctx, int depth , int server){
   for (int i = 0; i < WARMUP_ITERS; i += depth) {
       if (server){
-        pp_post_recv(ctx, depth);
-      }
+          pp_post_recv(ctx, depth);
+        }
       else {
-        pp_post_send(ctx, depth);
-      }
+          pp_post_send(ctx, depth);
+        }
     }
 }
 
-
-void validate_ctx(struct pingpong_context *ctx, struct pingpong_dest *my_dest, int ib_port, int use_event, int gidx, char gid[33]) {
-  if (!ctx)
-    return;
-
-  ctx->routs = pp_post_recv(ctx, ctx->rx_depth);
-  if (ctx->routs < ctx->rx_depth) {
-    fprintf(stderr, "Couldn't post receive (%d)\n", ctx->routs);
-    return;
-  }
-
-  if (use_event)
-    if (ibv_req_notify_cq(ctx->cq, 0)) {
-      fprintf(stderr, "Couldn't request CQ notification\n");
-      return;
+void benchmark(struct pingpong_context *ctx, int depth , int server){
+  for (int w = 0; w < BENCHMARK_ITERS; w += depth)
+    {
+      if (server)
+        {
+          pp_post_recv(ctx, depth);
+        }
+      else
+        {
+          pp_post_send(ctx, depth);
+        }
+      pp_wait_completions(ctx, depth);
     }
-
-
-  if (pp_get_port_info(ctx->context, ib_port, &ctx->portinfo)) {
-    fprintf(stderr, "Couldn't get port info\n");
-    return;
-  }
-
-  my_dest->lid = ctx->portinfo.lid;
-  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest->lid) {
-    fprintf(stderr, "Couldn't get local LID\n");
-    return;
-  }
-
-  if (gidx >= 0) {
-    if (ibv_query_gid(ctx->context, ib_port, gidx, &my_dest->gid)) {
-      fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
-      return;
-    }
-  } else
-    memset(&my_dest->gid, 0, sizeof my_dest->gid);
-
-  my_dest->qpn = ctx->qp->qp_num;
-  my_dest->psn = lrand48() & 0xffffff;
-  inet_ntop(AF_INET6, &my_dest->gid, gid, sizeof gid);
 }
-
-struct ring_node {
-    struct pingpong_context *ctx;
-    struct pingpong_dest my_dest;
-    struct pingpong_dest *prev_dest;
-    struct pingpong_dest *next_dest;
-    int rank;
-    int size;
-};
-
-static struct ring_node *create_ring_node(struct ibv_device *ib_dev, int size,
-                                          int rx_depth, int tx_depth, int ib_port,
-                                          int use_event, int rank, int total_nodes)
-{
-  struct ring_node *node = calloc(1, sizeof(struct ring_node));
-  if (!node) return NULL;
-
-  node->ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, 1);
-  if (!node->ctx) {
-      free(node);
-      return NULL;
-    }
-
-  node->rank = rank;
-  node->size = total_nodes;
-
-  return node;
-}
-
-static int connect_ring_node(struct ring_node *node, const char *servername, int port,
-                             int ib_port, enum ibv_mtu mtu, int sl, int gidx)
-{
-  // Exchange info with previous node (act as server)
-  node->prev_dest = pp_server_exch_dest(node->ctx, ib_port, mtu, port + node->rank,
-                                        sl, &node->my_dest, gidx);
-  if (!node->prev_dest) {
-      fprintf(stderr, "Failed to exchange info with previous node (rank %d)\n",
-              (node->rank - 1 + node->size) % node->size);
-      return 1;
-    }
-
-  // Exchange info with next node (act as client)
-  node->next_dest = pp_client_exch_dest(servername, port + ((node->rank + 1) % node->size), &node->my_dest);
-  if (!node->next_dest) {
-      fprintf(stderr, "Failed to exchange info with next node (rank %d)\n",
-              (node->rank + 1) % node->size);
-      return 1;
-    }
-
-  // Connect QPs
-  if (pp_connect_ctx(node->ctx, ib_port, node->my_dest.psn, mtu, sl, node->prev_dest, gidx)) {
-      fprintf(stderr, "Couldn't connect to previous node's QP\n");
-      return 1;
-    }
-
-  if (pp_connect_ctx(node->ctx, ib_port, node->my_dest.psn, mtu, sl, node->next_dest, gidx)) {
-      fprintf(stderr, "Couldn't connect to next node's QP\n");
-      return 1;
-    }
-
-  printf("Node %d connected to previous (rank %d) and next (rank %d) nodes\n",
-         node->rank, (node->rank - 1 + node->size) % node->size,
-         (node->rank + 1) % node->size);
-
-  return 0;
-}
-
 
 int main(int argc, char *argv[])
 {
   struct ibv_device      **dev_list;
   struct ibv_device       *ib_dev;
-  struct pingpong_context *c_ctx;
-  struct pingpong_context *s_ctx;
+  struct pingpong_context *ctx;
   struct pingpong_dest     my_dest;
-  struct pingpong_dest    *c_rem_dest;
-  struct pingpong_dest    *s_rem_dest;
+  struct pingpong_dest    *rem_dest;
   char                    *ib_devname = NULL;
   char                    *servername;
   int                      port = DEFAULT_PORT;
@@ -735,10 +639,7 @@ int main(int argc, char *argv[])
   int                      sl = 0;
   int                      gidx = -1;
   char                     gid[33];
-  int                      rank;
-  struct ring_node *node;
-  char *base_ip = NULL;
-  int total_nodes = -1;
+  int                     rank;
 
   srand48(getpid() * time(NULL));
 
@@ -756,12 +657,11 @@ int main(int argc, char *argv[])
           { .name = "sl",       .has_arg = 1, .val = 'l' },
           { .name = "events",   .has_arg = 0, .val = 'e' },
           { .name = "gid-idx",  .has_arg = 1, .val = 'g' },
-          {.name = "rank" ,     .has_arg = 1, .val = 'k'}, // this is the rank
-          {.name = "total nodes" ,     .has_arg = 1, .val = 'z'}, // this is total nodes
+          { .name = "rank",  .has_arg = 1, .val = 'k' },
           { 0 }
       };
 
-      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:eg:k:z:", long_options, NULL);
+      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:eg:k:", long_options, NULL);
       if (c == -1)
         break;
 
@@ -819,12 +719,7 @@ int main(int argc, char *argv[])
           break;
 
           case 'k':
-            rank = strtol(optarg,NULL, 0);
-            printf("%s\n",optarg);
-          break;
-
-          case 'z':
-            total_nodes = strtol(optarg,NULL, 0);
+            rank = strtol(optarg, NULL, 0);
           break;
 
           default:
@@ -840,11 +735,6 @@ int main(int argc, char *argv[])
       return 1;
     }
 
-  if (rank == -1 || total_nodes == -1) {
-      fprintf(stderr, "Rank and total nodes must be specified\n");
-      return 1;
-    }
-
   page_size = sysconf(_SC_PAGESIZE);
 
   dev_list = ibv_get_device_list(NULL);
@@ -853,53 +743,174 @@ int main(int argc, char *argv[])
       return 1;
     }
 
-  ib_dev = *dev_list;
-  if (!ib_dev) {
-      fprintf(stderr, "No IB devices found\n");
-      return 1;
-    }
-  printf("%s","starting to create ring node");
-  node = create_ring_node(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, rank, total_nodes);
-  if (!node) {
-      fprintf(stderr, "Failed to create ring node\n");
-      return 1;
-    }
-
-  printf("%s","successfully created ring node");
-  if (connect_ring_node(node, servername, port, ib_port, mtu, sl, gidx)) {
-      fprintf(stderr, "Failed to connect ring node\n");
-      return 1;
-    }
-
-  printf("%s","successfully connected ring node");
-  // Perform ring communication
-  for (int i = 0; i < iters; i++) {
-      if (pp_post_recv(node->ctx, 1)) {
-          fprintf(stderr, "Failed to post receive\n");
+  if (!ib_devname) {
+      ib_dev = *dev_list;
+      if (!ib_dev) {
+          fprintf(stderr, "No IB devices found\n");
           return 1;
         }
-
-      if (pp_post_send(node->ctx, 1)) {
-          fprintf(stderr, "Failed to post send\n");
+    } else {
+      int i;
+      for (i = 0; dev_list[i]; ++i)
+        if (!strcmp(ibv_get_device_name(dev_list[i]), ib_devname))
+          break;
+      ib_dev = dev_list[i];
+      if (!ib_dev) {
+          fprintf(stderr, "IB device %s not found\n", ib_devname);
           return 1;
         }
-
-      if (pp_wait_completions(node->ctx, 2)) {
-          fprintf(stderr, "Failed to wait for completions\n");
-          return 1;
-        }
-
-      printf("Node %d completed iteration %d\n", node->rank, i);
     }
 
-  printf("Ring communication completed successfully\n");
+  ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
+  if (!ctx)
+    return 1;
 
-  // Cleanup
+  ctx->routs = pp_post_recv(ctx, ctx->rx_depth);
+  if (ctx->routs < ctx->rx_depth) {
+      fprintf(stderr, "Couldn't post receive (%d)\n", ctx->routs);
+      return 1;
+    }
+
+  if (use_event)
+    if (ibv_req_notify_cq(ctx->cq, 0)) {
+        fprintf(stderr, "Couldn't request CQ notification\n");
+        return 1;
+      }
+
+
+  if (pp_get_port_info(ctx->context, ib_port, &ctx->portinfo)) {
+      fprintf(stderr, "Couldn't get port info\n");
+      return 1;
+    }
+
+  my_dest.lid = ctx->portinfo.lid;
+  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
+      fprintf(stderr, "Couldn't get local LID\n");
+      return 1;
+    }
+
+  if (gidx >= 0) {
+      if (ibv_query_gid(ctx->context, ib_port, gidx, &my_dest.gid)) {
+          fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
+          return 1;
+        }
+    } else
+    memset(&my_dest.gid, 0, sizeof my_dest.gid);
+
+  my_dest.qpn = ctx->qp->qp_num;
+  my_dest.psn = lrand48() & 0xffffff;
+  inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
+
+
+  if (rank != 0)
+    rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+  else
+    rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+
+  if (!rem_dest)
+    return 1;
+
+  inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
+
+  if (rank != 0)
+    if (pp_connect_ctx(ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
+      return 1;
+
+  if (rank != 0) {
+      for (long int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
+          ctx->size = message_size;
+          warmup(ctx , tx_depth , TRUE);
+          clock_t start_time = clock();
+          benchmark(ctx, tx_depth, TRUE);
+          clock_t end_time = clock();
+          throughput(start_time, end_time, message_size);
+        }
+    }
+
+  else {
+      for (int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
+          ctx->size = size;
+          warmup(ctx , rx_depth , FALSE);
+          benchmark(ctx, rx_depth, FALSE);
+        }
+    }
+
+
+
+  ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
+  if (!ctx)
+    return 1;
+
+  ctx->routs = pp_post_recv(ctx, ctx->rx_depth);
+  if (ctx->routs < ctx->rx_depth) {
+      fprintf(stderr, "Couldn't post receive (%d)\n", ctx->routs);
+      return 1;
+    }
+
+  if (use_event)
+    if (ibv_req_notify_cq(ctx->cq, 0)) {
+        fprintf(stderr, "Couldn't request CQ notification\n");
+        return 1;
+      }
+
+
+  if (pp_get_port_info(ctx->context, ib_port, &ctx->portinfo)) {
+      fprintf(stderr, "Couldn't get port info\n");
+      return 1;
+    }
+
+  my_dest.lid = ctx->portinfo.lid;
+  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
+      fprintf(stderr, "Couldn't get local LID\n");
+      return 1;
+    }
+
+  if (gidx >= 0) {
+      if (ibv_query_gid(ctx->context, ib_port, gidx, &my_dest.gid)) {
+          fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
+          return 1;
+        }
+    } else
+    memset(&my_dest.gid, 0, sizeof my_dest.gid);
+
+  my_dest.qpn = ctx->qp->qp_num;
+  my_dest.psn = lrand48() & 0xffffff;
+  inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
+
+  if (rank == 0)
+    rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+  else
+    rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+
+  if (!rem_dest)
+    return 1;
+
+  inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
+
+  if (rank == 0)
+    if (pp_connect_ctx(ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
+      return 1;
+
+  if (rank == 0) {
+      for (long int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
+          ctx->size = message_size;
+          warmup(ctx , tx_depth , TRUE);
+          clock_t start_time = clock();
+          benchmark(ctx, tx_depth, TRUE);
+          clock_t end_time = clock();
+          throughput(start_time, end_time, message_size);
+        }
+    }
+
+  else {
+      for (int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
+          ctx->size = size;
+          warmup(ctx , rx_depth , FALSE);
+          benchmark(ctx, rx_depth, FALSE);
+        }
+    }
+
   ibv_free_device_list(dev_list);
-  free(node->prev_dest);
-  free(node->next_dest);
-  pp_close_ctx(node->ctx);
-  free(node);
-
+  free(rem_dest);
   return 0;
 }
