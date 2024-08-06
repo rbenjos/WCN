@@ -858,7 +858,7 @@ int main(int argc, char *argv[])
       fprintf(stderr, "No IB devices found\n");
       return 1;
     }
-
+  printf("%s","starting to create ring node");
   node = create_ring_node(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, rank, total_nodes);
   if (!node) {
       fprintf(stderr, "Failed to create ring node\n");
