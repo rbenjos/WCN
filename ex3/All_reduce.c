@@ -792,7 +792,7 @@ int main(int argc, char *argv[])
     }
 
   s_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, TRUE);
-  c_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, FALSE);
+  c_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, TRUE);
 
 
 
@@ -823,15 +823,25 @@ int main(int argc, char *argv[])
         }
     }
 
-//  if (!rem_dest)
-//    return 1;
+  if (!c_rem_dest || !s_rem_dest)
+    return 1;
 
   inet_ntop(AF_INET6, &c_rem_dest->gid, gid, sizeof gid);
   inet_ntop(AF_INET6, &s_rem_dest->gid, gid, sizeof gid);
 
   if (servername)
-    if (pp_connect_ctx(c_ctx, ib_port, my_dest.psn, mtu, sl, c_rem_dest, gidx))
-      return 1;
+    {
+      {
+        if (pp_connect_ctx(c_ctx, ib_port, my_dest.psn, mtu, sl, c_rem_dest, gidx))
+          {
+            return 1;
+          }
+      }
+      if (pp_connect_ctx(s_ctx, ib_port, my_dest.psn, mtu, sl, s_rem_dest, gidx))
+        {
+          return 1;
+        }
+    }
 
   if (servername) {
     c_ctx->size = 1024;
