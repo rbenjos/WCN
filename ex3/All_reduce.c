@@ -865,11 +865,13 @@ int main(int argc, char *argv[])
       return 1;
     }
 
+  printf("%s","successfully created ring node");
   if (connect_ring_node(node, servername, port, ib_port, mtu, sl, gidx)) {
       fprintf(stderr, "Failed to connect ring node\n");
       return 1;
     }
 
+  printf("%s","successfully connected ring node");
   // Perform ring communication
   for (int i = 0; i < iters; i++) {
       if (pp_post_recv(node->ctx, 1)) {
