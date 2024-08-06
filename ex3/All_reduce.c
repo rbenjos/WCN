@@ -649,7 +649,8 @@ int main(int argc, char *argv[])
 {
   struct ibv_device      **dev_list;
   struct ibv_device       *ib_dev;
-  struct pingpong_context *ctx;
+  struct pingpong_context *c_ctx;
+  struct pingpong_context *s_ctx;
   struct pingpong_dest     my_dest;
   struct pingpong_dest    *c_rem_dest;
   struct pingpong_dest    *s_rem_dest;
@@ -799,45 +800,55 @@ int main(int argc, char *argv[])
   validate_ctx(c_ctx, &my_dest, ib_port, use_event, gidx, gid);
 
   if (servername) {
-    c_rem_dest = NULL;
-    s_rem_dest = NULL;
-    if (rank == 1){
-        c_rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
-      }
-    while (s_rem_dest == NULL){
-        s_rem_dest = pp_client_exch_dest(servername, port, &my_dest);
-      }
-    if (s_rem_dest) {
-      printf("%s","I just got nailed\n");
+      s_rem_dest = NULL;
+      if (rank == 1){
+          s_rem_dest = pp_server_exch_dest(s_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+        }
+      if (rank == 1 && s_rem_dest != NULL){
+          printf("%s","I just got nailed\n");
+        }
+      c_rem_dest = NULL;
+      while (c_rem_dest == NULL){
+          c_rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+        }
+      if (c_rem_dest) {
+          printf("%s","I just nailed somebody else\n");
+        }
+      s_rem_dest = NULL;
+      if (rank != 1){
+          s_rem_dest = pp_server_exch_dest(c_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+        }
+      if (s_rem_dest) {
+          printf("%s","I just got nailed\n");
+        }
     }
-    if (rank != 1){
-        c_rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
-      }
-    if (rem_dest) {
-      printf("%s","I just nailed somebody else\n");
-    }
-  }
 
-  if (!rem_dest)
-    return 1;
+//  if (!rem_dest)
+//    return 1;
 
-  inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
+  inet_ntop(AF_INET6, &c_rem_dest->gid, gid, sizeof gid);
+  inet_ntop(AF_INET6, &s_rem_dest->gid, gid, sizeof gid);
 
   if (servername)
-    if (pp_connect_ctx(ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
+    if (pp_connect_ctx(c_ctx, ib_port, my_dest.psn, mtu, sl, c_rem_dest, gidx))
       return 1;
 
   if (servername) {
-    ctx->size = 1024;
+    c_ctx->size = 1024;
+    s_ctx->size = 1024;
     while(1) {
 
     }
-    pp_post_recv(ctx, tx_depth);
-    pp_post_send(ctx, tx_depth);
-    pp_wait_completions(ctx, tx_depth);
+    pp_post_recv(c_ctx, tx_depth);
+    pp_post_recv(c_ctx, tx_depth);
+    pp_post_send(s_ctx, tx_depth);
+    pp_post_send(s_ctx, tx_depth);
+    pp_wait_completions(c_ctx, tx_depth);
+    pp_wait_completions(s_ctx, tx_depth);
   }
 
   ibv_free_device_list(dev_list);
-  free(rem_dest);
+  free(c_rem_dest);
+  free(s_rem_dest);
   return 0;
 }
