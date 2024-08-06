@@ -836,51 +836,51 @@ int main(int argc, char *argv[])
     }
 
 
-
-  ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
-  if (!ctx)
+  struct pingpong_context *s_ctx;
+  s_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
+  if (!s_ctx)
     return 1;
 
-  ctx->routs = pp_post_recv(ctx, ctx->rx_depth);
-  if (ctx->routs < ctx->rx_depth) {
-      fprintf(stderr, "Couldn't post receive (%d)\n", ctx->routs);
+  s_ctx->routs = pp_post_recv(s_ctx, s_ctx->rx_depth);
+  if (s_ctx->routs < s_ctx->rx_depth) {
+      fprintf(stderr, "Couldn't post receive (%d)\n", s_ctx->routs);
       return 1;
     }
 
   if (use_event)
-    if (ibv_req_notify_cq(ctx->cq, 0)) {
+    if (ibv_req_notify_cq(s_ctx->cq, 0)) {
         fprintf(stderr, "Couldn't request CQ notification\n");
         return 1;
       }
 
 
-  if (pp_get_port_info(ctx->context, ib_port, &ctx->portinfo)) {
+  if (pp_get_port_info(s_ctx->context, ib_port, &s_ctx->portinfo)) {
       fprintf(stderr, "Couldn't get port info\n");
       return 1;
     }
 
-  my_dest.lid = ctx->portinfo.lid;
-  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
+  my_dest.lid = s_ctx->portinfo.lid;
+  if (s_ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
       fprintf(stderr, "Couldn't get local LID\n");
       return 1;
     }
 
   if (gidx >= 0) {
-      if (ibv_query_gid(ctx->context, ib_port, gidx, &my_dest.gid)) {
+      if (ibv_query_gid(s_ctx->context, ib_port, gidx, &my_dest.gid)) {
           fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
           return 1;
         }
     } else
     memset(&my_dest.gid, 0, sizeof my_dest.gid);
 
-  my_dest.qpn = ctx->qp->qp_num;
+  my_dest.qpn = s_ctx->qp->qp_num;
   my_dest.psn = lrand48() & 0xffffff;
   inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
 
   if (rank == 0)
     rem_dest = pp_client_exch_dest(servername, port, &my_dest);
   else
-    rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+    rem_dest = pp_server_exch_dest(s_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
 
   if (!rem_dest)
     return 1;
@@ -893,10 +893,10 @@ int main(int argc, char *argv[])
 
   if (rank == 0) {
       for (long int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
-          ctx->size = message_size;
-          warmup(ctx , tx_depth , TRUE);
+          s_ctx->size = message_size;
+          warmup(s_ctx , tx_depth , TRUE);
           clock_t start_time = clock();
-          benchmark(ctx, tx_depth, TRUE);
+          benchmark(s_ctx, tx_depth, TRUE);
           clock_t end_time = clock();
           throughput(start_time, end_time, message_size);
         }
@@ -904,9 +904,9 @@ int main(int argc, char *argv[])
 
   else {
       for (int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
-          ctx->size = size;
-          warmup(ctx , rx_depth , FALSE);
-          benchmark(ctx, rx_depth, FALSE);
+          s_ctx->size = size;
+          warmup(s_ctx , rx_depth , FALSE);
+          benchmark(s_ctx, rx_depth, FALSE);
         }
     }
 
