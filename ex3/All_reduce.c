@@ -888,7 +888,7 @@ int main(int argc, char *argv[])
   inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
 
   if (rank == 0)
-    if (pp_connect_ctx(ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
+    if (pp_connect_ctx(s_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
       return 1;
 
   if (rank == 0) {
