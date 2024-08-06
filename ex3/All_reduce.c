@@ -595,14 +595,28 @@ static void throughput(clock_t start_time, clock_t end_time, long int message_si
 void warmup(struct pingpong_context *ctx, int depth , int server){
   for (int i = 0; i < WARMUP_ITERS; i += depth) {
       if (server){
-        pp_post_recv(ctx, depth);
-      }
+          pp_post_recv(ctx, depth);
+        }
       else {
-        pp_post_send(ctx, depth);
-      }
+          pp_post_send(ctx, depth);
+        }
     }
 }
 
+void benchmark(struct pingpong_context *ctx, int depth , int server){
+  for (int w = 0; w < BENCHMARK_ITERS; w += depth)
+    {
+      if (server)
+        {
+          pp_post_recv(ctx, depth);
+        }
+      else
+        {
+          pp_post_send(ctx, depth);
+        }
+      pp_wait_completions(ctx, depth);
+    }
+}
 
 int main(int argc, char *argv[])
 {
@@ -625,7 +639,7 @@ int main(int argc, char *argv[])
   int                      sl = 0;
   int                      gidx = -1;
   char                     gid[33];
-  int                      rank;
+  int                     rank;
 
   srand48(getpid() * time(NULL));
 
@@ -643,7 +657,7 @@ int main(int argc, char *argv[])
           { .name = "sl",       .has_arg = 1, .val = 'l' },
           { .name = "events",   .has_arg = 0, .val = 'e' },
           { .name = "gid-idx",  .has_arg = 1, .val = 'g' },
-          {.name = "rank" ,     .has_arg = 1, .val = 'k'}, // this is the rank
+          { .name = "rank",  .has_arg = 1, .val = 'k' },
           { 0 }
       };
 
@@ -705,8 +719,7 @@ int main(int argc, char *argv[])
           break;
 
           case 'k':
-            rank = strtol(optarg,NULL, 0);
-            printf("%s\n",optarg);
+            rank = strtol(optarg, NULL, 0);
           break;
 
           default:
@@ -789,43 +802,113 @@ int main(int argc, char *argv[])
   inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
 
 
-  if (servername) {
-    rem_dest = NULL;
-    if (rank == 1){
-        rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
-      }
-    while (rem_dest == NULL){
-        rem_dest = pp_client_exch_dest(servername, port, &my_dest);
-      }
-    if (rem_dest) {
-      printf("%s","I just got nailed\n");
-    }
-    if (rank != 1){
-        rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
-      }
-    if (rem_dest) {
-      printf("%s","I just nailed somebody else\n");
-    }
-  }
+  if (rank != 0)
+    rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+  else
+    rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
 
   if (!rem_dest)
     return 1;
 
   inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
 
-  if (servername)
+  if (rank != 0)
     if (pp_connect_ctx(ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
       return 1;
 
-  if (servername) {
-    ctx->size = 1024;
-    while(1) {
-
+  if (rank != 0) {
+      for (long int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
+          ctx->size = message_size;
+          warmup(ctx , tx_depth , TRUE);
+          clock_t start_time = clock();
+          benchmark(ctx, tx_depth, TRUE);
+          clock_t end_time = clock();
+          throughput(start_time, end_time, message_size);
+        }
     }
-    pp_post_recv(ctx, tx_depth);
-    pp_post_send(ctx, tx_depth);
-    pp_wait_completions(ctx, tx_depth);
-  }
+
+  else {
+      for (int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
+          ctx->size = size;
+          warmup(ctx , rx_depth , FALSE);
+          benchmark(ctx, rx_depth, FALSE);
+        }
+    }
+
+
+
+  ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
+  if (!ctx)
+    return 1;
+
+  ctx->routs = pp_post_recv(ctx, ctx->rx_depth);
+  if (ctx->routs < ctx->rx_depth) {
+      fprintf(stderr, "Couldn't post receive (%d)\n", ctx->routs);
+      return 1;
+    }
+
+  if (use_event)
+    if (ibv_req_notify_cq(ctx->cq, 0)) {
+        fprintf(stderr, "Couldn't request CQ notification\n");
+        return 1;
+      }
+
+
+  if (pp_get_port_info(ctx->context, ib_port, &ctx->portinfo)) {
+      fprintf(stderr, "Couldn't get port info\n");
+      return 1;
+    }
+
+  my_dest.lid = ctx->portinfo.lid;
+  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
+      fprintf(stderr, "Couldn't get local LID\n");
+      return 1;
+    }
+
+  if (gidx >= 0) {
+      if (ibv_query_gid(ctx->context, ib_port, gidx, &my_dest.gid)) {
+          fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
+          return 1;
+        }
+    } else
+    memset(&my_dest.gid, 0, sizeof my_dest.gid);
+
+  my_dest.qpn = ctx->qp->qp_num;
+  my_dest.psn = lrand48() & 0xffffff;
+  inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
+
+  if (rank == 0)
+    rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+  else
+    rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+
+  if (!rem_dest)
+    return 1;
+
+  inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
+
+  if (rank == 0)
+    if (pp_connect_ctx(ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
+      return 1;
+
+  if (rank == 0) {
+      for (long int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
+          ctx->size = message_size;
+          warmup(ctx , tx_depth , TRUE);
+          clock_t start_time = clock();
+          benchmark(ctx, tx_depth, TRUE);
+          clock_t end_time = clock();
+          throughput(start_time, end_time, message_size);
+        }
+    }
+
+  else {
+      for (int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
+          ctx->size = size;
+          warmup(ctx , rx_depth , FALSE);
+          benchmark(ctx, rx_depth, FALSE);
+        }
+    }
 
   ibv_free_device_list(dev_list);
   free(rem_dest);
