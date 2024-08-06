@@ -492,12 +492,7 @@ static int pp_post_recv(struct pingpong_context *ctx, int n)
   struct ibv_recv_wr *bad_wr;
   int i;
 
-  for (i = 0; i < n; ++i){
-      if (ibv_post_recv(ctx->qp, &wr, &bad_wr)) {
-          break;
-        }}
-
-  return i;
+  return ibv_post_recv(ctx->qp, &wr, &bad_wr);
 }
 
 static int pp_post_send(struct pingpong_context *ctx, int depth)
@@ -516,12 +511,7 @@ static int pp_post_send(struct pingpong_context *ctx, int depth)
       .send_flags = IBV_SEND_SIGNALED,
       .next       = NULL
   };
-  int i;
-  for (i = 0; i < depth; ++i)
-    if (ibv_post_send(ctx->qp, &wr, &bad_wr)){
-        break;
-      }
-  return i;
+  return ibv_post_send(ctx->qp, &wr, &bad_wr);
 }
 
 int pp_wait_completions(struct pingpong_context *ctx, int iters)
@@ -618,6 +608,11 @@ void benchmark(struct pingpong_context *ctx, int depth , int server){
     }
 }
 
+struct vector{
+    int a;
+    int b;
+} vector;
+
 int main(int argc, char *argv[])
 {
   struct ibv_device      **dev_list;
@@ -641,6 +636,8 @@ int main(int argc, char *argv[])
   char                     gid[33];
   int                     rank;
 
+  struct vector* vec  = calloc(1, sizeof(vec));
+
   srand48(getpid() * time(NULL));
 
   while (1) {
@@ -658,10 +655,11 @@ int main(int argc, char *argv[])
           { .name = "events",   .has_arg = 0, .val = 'e' },
           { .name = "gid-idx",  .has_arg = 1, .val = 'g' },
           { .name = "rank",  .has_arg = 1, .val = 'k' },
+          { .name = "vector",  .has_arg = 1, .val = 'v' },
           { 0 }
       };
 
-      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:eg:k:", long_options, NULL);
+      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:eg:k:v:a:b:", long_options, NULL);
       if (c == -1)
         break;
 
@@ -722,11 +720,21 @@ int main(int argc, char *argv[])
             rank = strtol(optarg, NULL, 0);
           break;
 
+          case 'a':
+            vec->a = strtol(optarg,NULL,0);
+          break;
+
+          case 'b':
+            vec->b = strtol(optarg,NULL,0);
+          break;;
+
           default:
             usage(argv[0]);
           return 1;
         }
     }
+
+  printf("%d\n%d\n",vec->a,vec->b);
 
   if (optind == argc - 1)
     servername = strdup(argv[optind]);
@@ -816,25 +824,55 @@ int main(int argc, char *argv[])
     if (pp_connect_ctx(ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
       return 1;
 
-  if (rank != 0) {
-      for (long int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
-          ctx->size = message_size;
-          warmup(ctx , tx_depth , TRUE);
-          clock_t start_time = clock();
-          benchmark(ctx, tx_depth, TRUE);
-          clock_t end_time = clock();
-          throughput(start_time, end_time, message_size);
+  if (rank == 1) {
+      // Client side
+      const char* message = "hello";
+      strncpy(ctx->buf, message, ctx->size);
+
+      if (pp_post_send(ctx,rx_depth)) {
+          fprintf(stderr, "Couldn't post send\n");
+          return 1;
         }
+
+      if (pp_wait_completions(ctx, rx_depth)) {
+          fprintf(stderr, "Couldn't wait for completion\n");
+          return 1;
+        }
+
+      printf("Client sent: %s\n", (char*)ctx->buf);
+    } else {
+      // Server side
+      if (pp_post_recv(ctx, rx_depth)) {
+          fprintf(stderr, "Couldn't post receive\n");
+          return 1;
+        }
+
+      if (pp_wait_completions(ctx, rx_depth)) {
+          fprintf(stderr, "Couldn't wait for completion\n");
+          return 1;
+        }
+
+      printf("Server received: %s\n", (char*)ctx->buf);
     }
 
-  else {
-      for (int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
-          ctx->size = size;
-          warmup(ctx , rx_depth , FALSE);
-          benchmark(ctx, rx_depth, FALSE);
-        }
-    }
-
+//  if (rank != 0) {
+//      for (long int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
+//          ctx->size = message_size;
+//          warmup(ctx , tx_depth , TRUE);
+//          clock_t start_time = clock();
+//          benchmark(ctx, tx_depth, TRUE);
+//          clock_t end_time = clock();
+//          throughput(start_time, end_time, message_size);
+//        }
+//    }
+//
+//  else {
+//      for (int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
+//          ctx->size = size;
+//          warmup(ctx , rx_depth , FALSE);
+//          benchmark(ctx, rx_depth, FALSE);
+//        }
+//    }
 
   struct pingpong_context *s_ctx;
   s_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
@@ -891,24 +929,24 @@ int main(int argc, char *argv[])
     if (pp_connect_ctx(s_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
       return 1;
 
-  if (rank == 0) {
-      for (long int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
-          s_ctx->size = message_size;
-          warmup(s_ctx , tx_depth , TRUE);
-          clock_t start_time = clock();
-          benchmark(s_ctx, tx_depth, TRUE);
-          clock_t end_time = clock();
-          throughput(start_time, end_time, message_size);
-        }
-    }
-
-  else {
-      for (int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
-          s_ctx->size = size;
-          warmup(s_ctx , rx_depth , FALSE);
-          benchmark(s_ctx, rx_depth, FALSE);
-        }
-    }
+//  if (rank == 0) {
+//      for (long int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
+//          s_ctx->size = message_size;
+//          warmup(s_ctx , tx_depth , TRUE);
+//          clock_t start_time = clock();
+//          benchmark(s_ctx, tx_depth, TRUE);
+//          clock_t end_time = clock();
+//          throughput(start_time, end_time, message_size);
+//        }
+//    }
+//
+//  else {
+//      for (int message_size = 1; message_size <= MAX_MSG_SIZE; message_size *= 2) {
+//          s_ctx->size = size;
+//          warmup(s_ctx , rx_depth , FALSE);
+//          benchmark(s_ctx, rx_depth, FALSE);
+//        }
+//    }
 
   ibv_free_device_list(dev_list);
   free(rem_dest);
