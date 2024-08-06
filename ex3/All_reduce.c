@@ -643,7 +643,7 @@ int main(int argc, char *argv[])
           { .name = "events",   .has_arg = 0, .val = 'e' },
           { .name = "gid-idx",  .has_arg = 1, .val = 'g' },
           { 0 },
-            {.name = "rank" , .has_arg = 1, .val = "rk"}
+            {.name = "rank" , .has_arg = 1, .val = 'k'} // this is the rank
       };
 
       c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:eg:rk:", long_options, NULL);
@@ -703,7 +703,7 @@ int main(int argc, char *argv[])
             gidx = strtol(optarg, NULL, 0);
           break;
 
-        case "rk":
+        case 'k:
           printf("%s",optarg);
         break;
 
