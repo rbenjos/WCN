@@ -804,6 +804,9 @@ int main(int argc, char *argv[])
 
   if (servername) {
     ctx->size = 1024;
+    while(1) {
+
+    }
     pp_post_recv(ctx, tx_depth);
     pp_post_send(ctx, tx_depth);
     pp_wait_completions(ctx, tx_depth);
