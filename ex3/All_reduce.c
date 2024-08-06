@@ -646,7 +646,7 @@ int main(int argc, char *argv[])
             {.name = "rank" , .has_arg = 1, .val = 'k'} // this is the rank
       };
 
-      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:eg:rk:", long_options, NULL);
+      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:eg:k:", long_options, NULL);
       if (c == -1)
         break;
 
