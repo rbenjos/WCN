@@ -166,7 +166,7 @@ static int pp_connect_ctx(struct pingpong_context *ctx, int port, int my_psn,
   return 0;
 }
 
-static struct pingpong_dest *pp_client_exch_dest(const char *servername, int port,
+static struct pingpong_dest *t_exch_dest(const char *servername, int port,
                                                  const struct pingpong_dest *my_dest)
 {
   struct addrinfo *res, *t;
@@ -787,11 +787,16 @@ int main(int argc, char *argv[])
   inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
 
 
-  if (servername)
+  if (servername) {
     rem_dest = pp_client_exch_dest(servername, port, &my_dest);
-    printf("%s","I just got nailed\n");
+    if (rem_dest) {
+      printf("%s","I just got nailed\n");
+    }
     rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
-    printf("%s","I just nailed somebody else\n");
+    if (rem_dest) {
+      printf("%s","I just nailed somebody else\n");
+    }
+  }
 
   if (!rem_dest)
     return 1;
