@@ -625,6 +625,7 @@ int main(int argc, char *argv[])
   int                      sl = 0;
   int                      gidx = -1;
   char                     gid[33];
+  int                      rank;
 
   srand48(getpid() * time(NULL));
 
@@ -642,8 +643,8 @@ int main(int argc, char *argv[])
           { .name = "sl",       .has_arg = 1, .val = 'l' },
           { .name = "events",   .has_arg = 0, .val = 'e' },
           { .name = "gid-idx",  .has_arg = 1, .val = 'g' },
-          { 0 },
-            {.name = "rank" , .has_arg = 1, .val = 'k'} // this is the rank
+          {.name = "rank" ,     .has_arg = 1, .val = 'k'}, // this is the rank
+          { 0 }
       };
 
       c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:eg:k:", long_options, NULL);
@@ -704,6 +705,7 @@ int main(int argc, char *argv[])
           break;
 
           case 'k':
+            rank = strtol(optarg,NULL, 0);
             printf("%s\n",optarg);
           break;
 
@@ -788,11 +790,19 @@ int main(int argc, char *argv[])
 
 
   if (servername) {
-    rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+    rem_dest = NULL;
+    if (rank == 1){
+        rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+      }
+    while (rem_dest == NULL){
+        rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+      }
     if (rem_dest) {
       printf("%s","I just got nailed\n");
     }
-    rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+    if (rank != 1){
+        rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+      }
     if (rem_dest) {
       printf("%s","I just nailed somebody else\n");
     }
