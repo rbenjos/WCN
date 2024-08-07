@@ -581,6 +581,51 @@ struct vector{
     int b;
 };
 
+static int validate_context(struct pingpong_context* ctx, int use_event,
+    struct pingpong_dest* my_dest, char gid[33], int gidx, int ib_port){
+  if (!ctx)
+    return 1;
+
+  ctx->routs = pp_post_recv(ctx, ctx->rx_depth);
+  if (ctx->routs < ctx->rx_depth) {
+      fprintf(stderr, "Couldn't post receive (%d)\n", ctx->routs);
+      return 1;
+    }
+
+  if (use_event)
+    if (ibv_req_notify_cq(ctx->cq, 0)) {
+        fprintf(stderr, "Couldn't request CQ notification\n");
+        return 1;
+      }
+
+
+  if (pp_get_port_info(ctx->context, ib_port, &ctx->portinfo)) {
+      fprintf(stderr, "Couldn't get port info\n");
+      return 1;
+    }
+
+  my_dest->lid = ctx->portinfo.lid;
+  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest->lid) {
+      fprintf(stderr, "Couldn't get local LID\n");
+      return 1;
+    }
+
+  if (gidx >= 0) {
+      if (ibv_query_gid(ctx->context, ib_port, gidx, &my_dest->gid)) {
+          fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
+          return 1;
+        }
+    } else
+    memset(&my_dest->gid, 0, sizeof my_dest->gid);
+
+  my_dest->qpn = ctx->qp->qp_num;
+  my_dest->psn = lrand48() & 0xffffff;
+  inet_ntop(AF_INET6, &my_dest->gid, gid, sizeof gid);
+  printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
+         my_dest->lid, my_dest->qpn, my_dest->psn, gid);
+
+}
+
 int main(int argc, char *argv[])
 {
   struct ibv_device      **dev_list;
@@ -734,49 +779,13 @@ int main(int argc, char *argv[])
         }
     }
 
-///////////////////client//////////////////////////////////////////////////////
+  s_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
+  validate_context(s_ctx,use_event,&my_dest,gid,gidx,ib_port);
 
   c_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
-  if (!c_ctx)
-    return 1;
+  validate_context(c_ctx,use_event,&my_dest,gid,gidx,ib_port);
 
-  c_ctx->routs = pp_post_recv(c_ctx, c_ctx->rx_depth);
-  if (c_ctx->routs < c_ctx->rx_depth) {
-      fprintf(stderr, "Couldn't post receive (%d)\n", c_ctx->routs);
-      return 1;
-    }
-
-  if (use_event)
-    if (ibv_req_notify_cq(c_ctx->cq, 0)) {
-        fprintf(stderr, "Couldn't request CQ notification\n");
-        return 1;
-      }
-
-
-  if (pp_get_port_info(c_ctx->context, ib_port, &c_ctx->portinfo)) {
-      fprintf(stderr, "Couldn't get port info\n");
-      return 1;
-    }
-
-  my_dest.lid = c_ctx->portinfo.lid;
-  if (c_ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
-      fprintf(stderr, "Couldn't get local LID\n");
-      return 1;
-    }
-
-  if (gidx >= 0) {
-      if (ibv_query_gid(c_ctx->context, ib_port, gidx, &my_dest.gid)) {
-          fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
-          return 1;
-        }
-    } else
-    memset(&my_dest.gid, 0, sizeof my_dest.gid);
-
-  my_dest.qpn = c_ctx->qp->qp_num;
-  my_dest.psn = lrand48() & 0xffffff;
-  inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
-  printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         my_dest.lid, my_dest.qpn, my_dest.psn, gid);
+  /////////////////////client//////////////////////////////////////////////////
 
 
   if (rank != 0)  //client
@@ -796,7 +805,7 @@ int main(int argc, char *argv[])
       return 1;
 
   if (rank != 0) {
-      memcpy(c_ctx->buf,vec,sizeof(struct vector));
+      memcpy(c_ctx->buf,&(vec->b) ,sizeof(int));
       int i;
       for (i = 0; i < iters; i++) {
           if ((i != 0) && (i % tx_depth == 0)) {
@@ -814,58 +823,15 @@ int main(int argc, char *argv[])
         return 1;
       }
     pp_wait_completions(c_ctx, iters);
-    sol = (struct vector*)c_ctx->buf;
+    int received = *(int*)c_ctx->buf;
+    vec->a += received;
 
-    printf("%d\n%d\n",sol->a,sol->b);
+    printf("%d %d\n",vec->a,vec->b);
     printf("Server Done.\n");
   }
 
 
-////////////////////////////server/////////////////////////////////////////////
-
-
-  s_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
-  if (!s_ctx)
-    return 1;
-
-  s_ctx->routs = pp_post_recv(s_ctx, s_ctx->rx_depth);
-  if (s_ctx->routs < s_ctx->rx_depth) {
-      fprintf(stderr, "Couldn't post receive (%d)\n", s_ctx->routs);
-      return 1;
-    }
-
-  if (use_event)
-    if (ibv_req_notify_cq(s_ctx->cq, 0)) {
-        fprintf(stderr, "Couldn't request CQ notification\n");
-        return 1;
-      }
-
-
-  if (pp_get_port_info(s_ctx->context, ib_port, &s_ctx->portinfo)) {
-      fprintf(stderr, "Couldn't get port info\n");
-      return 1;
-    }
-
-  my_dest.lid = s_ctx->portinfo.lid;
-  if (s_ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
-      fprintf(stderr, "Couldn't get local LID\n");
-      return 1;
-    }
-
-  if (gidx >= 0) {
-      if (ibv_query_gid(s_ctx->context, ib_port, gidx, &my_dest.gid)) {
-          fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
-          return 1;
-        }
-    } else
-    memset(&my_dest.gid, 0, sizeof my_dest.gid);
-
-  my_dest.qpn = s_ctx->qp->qp_num;
-  my_dest.psn = lrand48() & 0xffffff;
-  inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
-  printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         my_dest.lid, my_dest.qpn, my_dest.psn, gid);
-
+////////////////////////////server rank 0//////////////////////////////////////
 
   if (rank == 0)
     rem_dest = pp_client_exch_dest(servername, port, &my_dest);
@@ -884,7 +850,7 @@ int main(int argc, char *argv[])
       return 1;
 
   if (rank == 0) {
-      memcpy(s_ctx->buf,vec,sizeof(struct vector));
+      memcpy(c_ctx->buf,&(vec->a) ,sizeof(int));
       int i;
       for (i = 0; i < iters; i++) {
           if ((i != 0) && (i % tx_depth == 0)) {
@@ -902,9 +868,11 @@ int main(int argc, char *argv[])
           return 1;
         }
       pp_wait_completions(s_ctx, iters);
-      sol = (struct vector*)s_ctx->buf;
+      int received = *(int*)s_ctx->buf;
+      vec->b += received;
 
-      printf("%d\n%d\n",sol->a,sol->b);
+
+      printf("%d %d\n",vec->a,vec->b);
       printf("Server Done.\n");
     }
 
