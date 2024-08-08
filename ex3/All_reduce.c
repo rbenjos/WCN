@@ -583,10 +583,8 @@ struct vector{
 
 
 int validate_ctx(struct pingpong_context* ctx, struct pingpong_dest* my_dest, int ib_port,
-  int gidx, struct pingpong_dest* rem_dest, char gid[33])
+  int gidx, struct pingpong_dest* rem_dest, char gid[33], int use_event)
 {
-
-
 
   if (!ctx)
     return 1;
@@ -610,13 +608,13 @@ int validate_ctx(struct pingpong_context* ctx, struct pingpong_dest* my_dest, in
   }
 
   my_dest->lid = ctx->portinfo.lid;
-  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
+  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest->lid) {
     fprintf(stderr, "Couldn't get local LID\n");
     return 1;
   }
 
   if (gidx >= 0) {
-    if (ibv_query_gid(ctx->context, ib_port, gidx, &my_dest.gid)) {
+    if (ibv_query_gid(ctx->context, ib_port, gidx, &my_dest->gid)) {
       fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
       return 1;
     }
@@ -870,7 +868,7 @@ int main(int argc, char *argv[])
 ////////////////////////////server/////////////////////////////////////////////
 
   s_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
-  int s_valid = validate_ctx(s_ctx,&my_dest,ib_port,gidx,rem_dest,gid);
+  int s_valid = validate_ctx(s_ctx,&my_dest,ib_port,gidx,rem_dest,gid,use_event);
   my_dest.qpn = s_ctx->qp->qp_num;
   my_dest.psn = lrand48() & 0xffffff;
   inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
