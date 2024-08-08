@@ -781,41 +781,7 @@ int main(int argc, char *argv[])
 ///////////////////client//////////////////////////////////////////////////////
 
   c_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
-  if (!c_ctx)
-    return 1;
-
-  c_ctx->routs = pp_post_recv(c_ctx, c_ctx->rx_depth);
-  if (c_ctx->routs < c_ctx->rx_depth) {
-      fprintf(stderr, "Couldn't post receive (%d)\n", c_ctx->routs);
-      return 1;
-    }
-
-  if (use_event)
-    if (ibv_req_notify_cq(c_ctx->cq, 0)) {
-        fprintf(stderr, "Couldn't request CQ notification\n");
-        return 1;
-      }
-
-
-  if (pp_get_port_info(c_ctx->context, ib_port, &c_ctx->portinfo)) {
-      fprintf(stderr, "Couldn't get port info\n");
-      return 1;
-    }
-
-  my_dest.lid = c_ctx->portinfo.lid;
-  if (c_ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
-      fprintf(stderr, "Couldn't get local LID\n");
-      return 1;
-    }
-
-  if (gidx >= 0) {
-      if (ibv_query_gid(c_ctx->context, ib_port, gidx, &my_dest.gid)) {
-          fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
-          return 1;
-        }
-    } else
-    memset(&my_dest.gid, 0, sizeof my_dest.gid);
-
+  int c_valid = validate_ctx(c_ctx,&my_dest,ib_port,gidx,rem_dest,gid,use_event);
   my_dest.qpn = c_ctx->qp->qp_num;
   my_dest.psn = lrand48() & 0xffffff;
   inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
