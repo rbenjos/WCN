@@ -833,38 +833,11 @@ int main(int argc, char *argv[])
 
   if (rank == 0)  //client
   {
-    rem_dest = pp_client_exch_dest(servername, port, &my_dest);
-    if (!rem_dest)
-      return 1;
-    if (pp_connect_ctx(c_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
-      return 1;
-    memcpy(c_ctx->buf,vec,sizeof(struct vector));
-    int i;
-    for (i = 0; i < iters; i++) {
-      if ((i != 0) && (i % tx_depth == 0)) {
-        pp_wait_completions(c_ctx, tx_depth);
-      }
-      if (pp_post_send(c_ctx)) {
-        fprintf(stderr, "Client couldn't post send\n");
-        return 1;
-      }
-    }
-    printf("Client Done.\n");
+    int c_handled = handle_client(c_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,tx_depth, iters, servername);
   }
   else  // server
   {
-    rem_dest = pp_server_exch_dest(c_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
-    if (!rem_dest)
-      return 1;
-    if (pp_post_send(c_ctx)) {
-      fprintf(stderr, "Server couldn't post send\n");
-      return 1;
-    }
-    pp_wait_completions(c_ctx, iters);
-    sol = (struct vector*)c_ctx->buf;
-
-    printf("%d\n%d\n",sol->a,sol->b);
-    printf("Server Done.\n");
+    int s_handled = handle_server(c_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,iters);
   }
 
 
