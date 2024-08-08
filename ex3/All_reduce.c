@@ -625,25 +625,44 @@ int validate_ctx(struct pingpong_context* ctx, struct pingpong_dest* my_dest, in
 
 int handle_client(struct pingpong_context* ctx, struct pingpong_dest* rem_dest, int port,
     struct pingpong_dest my_dest, int ib_port, enum ibv_mtu mtu,
-    int sl, int gidx, struct vector vec, int tx_depth)
+    int sl, int gidx, struct vector* vec, int tx_depth, int iters, char* servername)
 {
   rem_dest = pp_client_exch_dest(servername, port, &my_dest);
   if (!rem_dest)
     return 1;
-  if (pp_connect_ctx(s_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
+  if (pp_connect_ctx(ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
     return 1;
-  memcpy(s_ctx->buf,vec,sizeof(struct vector));
+  memcpy(ctx->buf,vec,sizeof(struct vector));
   int i;
   for (i = 0; i < iters; i++) {
     if ((i != 0) && (i % tx_depth == 0)) {
-      pp_wait_completions(s_ctx, tx_depth);
+      pp_wait_completions(ctx, tx_depth);
     }
-    if (pp_post_send(s_ctx)) {
+    if (pp_post_send(ctx)) {
       fprintf(stderr, "Client couldn't post send\n");
       return 1;
     }
   }
   printf("Client Done.\n");
+  return 0;
+}
+
+
+int handle_server(struct pingpong_context* ctx, struct pingpong_dest* rem_dest, int port,
+    struct pingpong_dest my_dest, int ib_port, enum ibv_mtu mtu,
+    int sl, int gidx, struct vector* vec,int iters){
+  rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+  if (!rem_dest)
+    return 1;
+  if (pp_post_send(ctx)) {
+    fprintf(stderr, "Server couldn't post send\n");
+    return 1;
+  }
+  pp_wait_completions(ctx, iters);
+  vec = (struct vector*)ctx->buf;
+
+  printf("%d\n%d\n",vec->a,vec->b);
+  printf("Server Done.\n");
   return 0;
 }
 
@@ -862,6 +881,7 @@ int main(int argc, char *argv[])
 
   s_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
   int s_valid = validate_ctx(s_ctx,&my_dest,ib_port,gidx,rem_dest,gid,use_event);
+
   my_dest.qpn = s_ctx->qp->qp_num;
   my_dest.psn = lrand48() & 0xffffff;
   inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
@@ -871,22 +891,11 @@ int main(int argc, char *argv[])
 
   if (rank != 0)  //client
   {
-    int c_handled = handle_client(s_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,tx_depth);
+    int c_handled = handle_client(s_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,tx_depth, iters, servername);
   }
   else  // server
   {
-    rem_dest = pp_server_exch_dest(s_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
-    if (!rem_dest)
-      return 1;
-    if (pp_post_send(s_ctx)) {
-      fprintf(stderr, "Server couldn't post send\n");
-      return 1;
-    }
-    pp_wait_completions(s_ctx, iters);
-    sol = (struct vector*)s_ctx->buf;
-
-    printf("%d\n%d\n",sol->a,sol->b);
-    printf("Server Done.\n");
+    int s_handled = handle_server(s_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,iters);
   }
 
 
