@@ -834,10 +834,23 @@ int main(int argc, char *argv[])
   if (rank == 0)  //client
   {
     int c_handled = handle_client(c_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,tx_depth, iters, servername);
+    }
+    printf("Client Done.\n");
   }
   else  // server
   {
-    int s_handled = handle_server(c_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,iters);
+    rem_dest = pp_server_exch_dest(c_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+    if (!rem_dest)
+      return 1;
+    if (pp_post_send(c_ctx)) {
+      fprintf(stderr, "Server couldn't post send\n");
+      return 1;
+    }
+    pp_wait_completions(c_ctx, iters);
+    sol = (struct vector*)c_ctx->buf;
+
+    printf("%d\n%d\n",sol->a,sol->b);
+    printf("Server Done.\n");
   }
 
 
