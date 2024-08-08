@@ -835,7 +835,7 @@ int main(int argc, char *argv[])
   {
     int c_handled = handle_client(c_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,tx_depth, iters, servername);
   }
-  else  // server
+  else  // server again
   {
     int s_handled = handle_server(c_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,iters);
   }
