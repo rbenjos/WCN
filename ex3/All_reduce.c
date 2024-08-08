@@ -623,7 +623,29 @@ int validate_ctx(struct pingpong_context* ctx, struct pingpong_dest* my_dest, in
 
 }
 
-
+int handle_client(struct pingpong_context* ctx, struct pingpong_dest* rem_dest, int port,
+    struct pingpong_dest my_dest, int ib_port, enum ibv_mtu mtu,
+    int sl, int gidx, struct vector vec, int tx_depth)
+{
+  rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+  if (!rem_dest)
+    return 1;
+  if (pp_connect_ctx(s_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
+    return 1;
+  memcpy(s_ctx->buf,vec,sizeof(struct vector));
+  int i;
+  for (i = 0; i < iters; i++) {
+    if ((i != 0) && (i % tx_depth == 0)) {
+      pp_wait_completions(s_ctx, tx_depth);
+    }
+    if (pp_post_send(s_ctx)) {
+      fprintf(stderr, "Client couldn't post send\n");
+      return 1;
+    }
+  }
+  printf("Client Done.\n");
+  return 0;
+}
 
 int main(int argc, char *argv[])
 {
@@ -846,25 +868,10 @@ int main(int argc, char *argv[])
   printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
          my_dest.lid, my_dest.qpn, my_dest.psn, gid);
 
+
   if (rank != 0)  //client
   {
-    rem_dest = pp_client_exch_dest(servername, port, &my_dest);
-    if (!rem_dest)
-      return 1;
-    if (pp_connect_ctx(s_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
-      return 1;
-    memcpy(s_ctx->buf,vec,sizeof(struct vector));
-    int i;
-    for (i = 0; i < iters; i++) {
-      if ((i != 0) && (i % tx_depth == 0)) {
-        pp_wait_completions(s_ctx, tx_depth);
-      }
-      if (pp_post_send(s_ctx)) {
-        fprintf(stderr, "Client couldn't post send\n");
-        return 1;
-      }
-    }
-    printf("Client Done.\n");
+    int c_handled = handle_client(s_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,tx_depth);
   }
   else  // server
   {
