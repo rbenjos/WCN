@@ -789,46 +789,51 @@ int main(int argc, char *argv[])
          my_dest.lid, my_dest.qpn, my_dest.psn, gid);
 
 
-  if (rank == 0)  //client
-    rem_dest = pp_client_exch_dest(servername, port, &my_dest);
-  else  // server
-    rem_dest = pp_server_exch_dest(c_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
 
-  if (!rem_dest)
-    return 1;
+  if (rank == 0)  //client
+  {
+    rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+    if (!rem_dest)
+      return 1;
+    if (pp_connect_ctx(c_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
+      return 1;
+    memcpy(c_ctx->buf,vec,sizeof(struct vector));
+    int i;
+    for (i = 0; i < iters; i++) {
+      if ((i != 0) && (i % tx_depth == 0)) {
+        pp_wait_completions(c_ctx, tx_depth);
+      }
+      if (pp_post_send(c_ctx)) {
+        fprintf(stderr, "Client couldn't post send\n");
+        return 1;
+      }
+    }
+    printf("Client Done.\n");
+  }
+  else  // server
+  {
+    rem_dest = pp_server_exch_dest(c_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+    if (!rem_dest)
+      return 1;
+    if (pp_post_send(c_ctx)) {
+      fprintf(stderr, "Server couldn't post send\n");
+      return 1;
+    }
+    pp_wait_completions(c_ctx, iters);
+    sol = (struct vector*)c_ctx->buf;
+
+    printf("%d\n%d\n",sol->a,sol->b);
+    printf("Server Done.\n");
+  }
+
 
   inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
   printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
          rem_dest->lid, rem_dest->qpn, rem_dest->psn, gid);
 
-  if (rank == 0)
-    if (pp_connect_ctx(c_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
-      return 1;
 
-  if (rank == 0) {
-      memcpy(c_ctx->buf,vec,sizeof(struct vector));
-      int i;
-      for (i = 0; i < iters; i++) {
-          if ((i != 0) && (i % tx_depth == 0)) {
-              pp_wait_completions(c_ctx, tx_depth);
-            }
-          if (pp_post_send(c_ctx)) {
-              fprintf(stderr, "Client couldn't post send\n");
-              return 1;
-            }
-        }
-      printf("Client Done.\n");
-    } else {
-      if (pp_post_send(c_ctx)) {
-          fprintf(stderr, "Server couldn't post send\n");
-          return 1;
-        }
-      pp_wait_completions(c_ctx, iters);
-      sol = (struct vector*)c_ctx->buf;
 
-      printf("%d\n%d\n",sol->a,sol->b);
-      printf("Server Done.\n");
-    }
+
 
 
 ////////////////////////////server/////////////////////////////////////////////
