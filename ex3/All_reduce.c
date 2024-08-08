@@ -581,6 +581,52 @@ struct vector{
     int b;
 };
 
+
+int validate_ctx(struct pingpong_context* ctx, struct pingpong_dest* my_dest, int ib_port,
+  int gidx, struct pingpong_dest* rem_dest, char gid[33])
+{
+
+
+
+  if (!ctx)
+    return 1;
+
+  ctx->routs = pp_post_recv(ctx, ctx->rx_depth);
+  if (ctx->routs < ctx->rx_depth) {
+    fprintf(stderr, "Couldn't post receive (%d)\n", ctx->routs);
+    return 1;
+  }
+
+  if (use_event)
+    if (ibv_req_notify_cq(ctx->cq, 0)) {
+      fprintf(stderr, "Couldn't request CQ notification\n");
+      return 1;
+    }
+
+
+  if (pp_get_port_info(ctx->context, ib_port, &ctx->portinfo)) {
+    fprintf(stderr, "Couldn't get port info\n");
+    return 1;
+  }
+
+  my_dest->lid = ctx->portinfo.lid;
+  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
+    fprintf(stderr, "Couldn't get local LID\n");
+    return 1;
+  }
+
+  if (gidx >= 0) {
+    if (ibv_query_gid(ctx->context, ib_port, gidx, &my_dest.gid)) {
+      fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
+      return 1;
+    }
+  } else
+    memset(&my_dest->gid, 0, sizeof my_dest->gid);
+
+}
+
+
+
 int main(int argc, char *argv[])
 {
   struct ibv_device      **dev_list;
@@ -823,49 +869,13 @@ int main(int argc, char *argv[])
 
 ////////////////////////////server/////////////////////////////////////////////
 
-
   s_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
-  if (!s_ctx)
-    return 1;
-
-  s_ctx->routs = pp_post_recv(s_ctx, s_ctx->rx_depth);
-  if (s_ctx->routs < s_ctx->rx_depth) {
-      fprintf(stderr, "Couldn't post receive (%d)\n", s_ctx->routs);
-      return 1;
-    }
-
-  if (use_event)
-    if (ibv_req_notify_cq(s_ctx->cq, 0)) {
-        fprintf(stderr, "Couldn't request CQ notification\n");
-        return 1;
-      }
-
-
-  if (pp_get_port_info(s_ctx->context, ib_port, &s_ctx->portinfo)) {
-      fprintf(stderr, "Couldn't get port info\n");
-      return 1;
-    }
-
-  my_dest.lid = s_ctx->portinfo.lid;
-  if (s_ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
-      fprintf(stderr, "Couldn't get local LID\n");
-      return 1;
-    }
-
-  if (gidx >= 0) {
-      if (ibv_query_gid(s_ctx->context, ib_port, gidx, &my_dest.gid)) {
-          fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
-          return 1;
-        }
-    } else
-    memset(&my_dest.gid, 0, sizeof my_dest.gid);
-
+  int s_valid = validate_ctx(s_ctx,&my_dest,ib_port,gidx,rem_dest,gid);
   my_dest.qpn = s_ctx->qp->qp_num;
   my_dest.psn = lrand48() & 0xffffff;
   inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
   printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
          my_dest.lid, my_dest.qpn, my_dest.psn, gid);
-
 
   if (rank != 0)
     rem_dest = pp_client_exch_dest(servername, port, &my_dest);
