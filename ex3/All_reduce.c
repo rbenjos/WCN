@@ -483,7 +483,7 @@ static int pp_post_recv(struct pingpong_context *ctx, int n)
     if (ibv_post_recv(ctx->qp, &wr, &bad_wr))
       break;
 
-  return i; איתך אח
+  return i;
 }
 
 static int pp_post_send(struct pingpong_context *ctx)
@@ -688,7 +688,7 @@ int main(int argc, char *argv[])
 
           case 'v':
             vec->a = atoi(strtok(optarg, ","));
-          vec->b = atoi(strtok(NULL, ","));
+            vec->b = atoi(strtok(NULL, ","));
           break;
 
           case 'k':
@@ -779,9 +779,9 @@ int main(int argc, char *argv[])
          my_dest.lid, my_dest.qpn, my_dest.psn, gid);
 
 
-  if (rank != 0)  //client
+  if (rank == 0)  //client
     rem_dest = pp_client_exch_dest(servername, port, &my_dest);
-  else
+  else  // server
     rem_dest = pp_server_exch_dest(c_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
 
   if (!rem_dest)
@@ -791,11 +791,11 @@ int main(int argc, char *argv[])
   printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
          rem_dest->lid, rem_dest->qpn, rem_dest->psn, gid);
 
-  if (rank != 0)
+  if (rank == 0)
     if (pp_connect_ctx(c_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
       return 1;
 
-  if (rank != 0) {
+  if (rank == 0) {
       memcpy(c_ctx->buf,vec,sizeof(struct vector));
       int i;
       for (i = 0; i < iters; i++) {
@@ -867,7 +867,7 @@ int main(int argc, char *argv[])
          my_dest.lid, my_dest.qpn, my_dest.psn, gid);
 
 
-  if (rank == 0)
+  if (rank != 0)
     rem_dest = pp_client_exch_dest(servername, port, &my_dest);
   else
     rem_dest = pp_server_exch_dest(s_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
@@ -879,11 +879,11 @@ int main(int argc, char *argv[])
   printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
          rem_dest->lid, rem_dest->qpn, rem_dest->psn, gid);
 
-  if (rank == 0)
+  if (rank != 0)
     if (pp_connect_ctx(s_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
       return 1;
 
-  if (rank == 0) {
+  if (rank != 0) {
       memcpy(s_ctx->buf,vec,sizeof(struct vector));
       int i;
       for (i = 0; i < iters; i++) {
