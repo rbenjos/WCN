@@ -606,6 +606,52 @@ struct options{
     int                      rank;
 } typedef options;
 
+
+int validate_ctx(options* opts, int flag){
+  if (!(opts->c_ctx))
+    return 1;
+
+  struct pingpong_context* ctx = flag ? opts->c_ctx : opts->s_ctx;
+
+  ctx->routs = pp_post_recv(ctx, ctx->rx_depth);
+  if (ctx->routs < ctx->rx_depth) {
+      fprintf(stderr, "Couldn't post receive (%d)\n", ctx->routs);
+      return 1;
+    }
+
+  if (opts->use_event)
+    if (ibv_req_notify_cq(ctx->cq, 0)) {
+        fprintf(stderr, "Couldn't request CQ notification\n");
+        return 1;
+      }
+
+
+  if (pp_get_port_info(ctx->context, opts->ib_port, &(ctx->portinfo))) {
+      fprintf(stderr, "Couldn't get port info\n");
+      return 1;
+    }
+
+  opts->my_dest.lid = ctx->portinfo.lid;
+  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !(opts->my_dest).lid) {
+      fprintf(stderr, "Couldn't get local LID\n");
+      return 1;
+    }
+
+  if (opts->gidx >= 0) {
+      if (ibv_query_gid(ctx->context, opts->ib_port, opts->gidx, &(opts->my_dest).gid)) {
+          fprintf(stderr, "Could not get local gid for gid index %d\n", opts->gidx);
+          return 1;
+        }
+    } else
+    memset(&(opts->my_dest).gid, 0, sizeof opts->my_dest.gid);
+
+  opts->my_dest.qpn = ctx->qp->qp_num;
+  opts->my_dest.psn = lrand48() & 0xffffff;
+  inet_ntop(AF_INET6, &(opts->my_dest).gid, opts->gid, sizeof opts->gid);
+  printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
+         opts->my_dest.lid, opts->my_dest.qpn, opts->my_dest.psn, opts->gid);
+}
+
 int main(int argc, char *argv[])
 {
   options* opts = calloc (1, sizeof(options));
@@ -753,47 +799,7 @@ int main(int argc, char *argv[])
 ///////////////////client//////////////////////////////////////////////////////
 
   opts->c_ctx = pp_init_ctx(opts->ib_dev, opts->size, opts->rx_depth, opts->tx_depth, opts->ib_port, opts->use_event, !(opts->servername));
-  if (!(opts->c_ctx))
-    return 1;
-
-  opts->c_ctx->routs = pp_post_recv(opts->c_ctx, opts->c_ctx->rx_depth);
-  if (opts->c_ctx->routs < opts->c_ctx->rx_depth) {
-      fprintf(stderr, "Couldn't post receive (%d)\n", opts->c_ctx->routs);
-      return 1;
-    }
-
-  if (opts->use_event)
-    if (ibv_req_notify_cq(opts->c_ctx->cq, 0)) {
-        fprintf(stderr, "Couldn't request CQ notification\n");
-        return 1;
-      }
-
-
-  if (pp_get_port_info(opts->c_ctx->context, opts->ib_port, &(opts->c_ctx->portinfo))) {
-      fprintf(stderr, "Couldn't get port info\n");
-      return 1;
-    }
-
-  opts->my_dest.lid = opts->c_ctx->portinfo.lid;
-  if (opts->c_ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !(opts->my_dest).lid) {
-      fprintf(stderr, "Couldn't get local LID\n");
-      return 1;
-    }
-
-  if (opts->gidx >= 0) {
-      if (ibv_query_gid(opts->c_ctx->context, opts->ib_port, opts->gidx, &(opts->my_dest).gid)) {
-          fprintf(stderr, "Could not get local gid for gid index %d\n", opts->gidx);
-          return 1;
-        }
-    } else
-    memset(&(opts->my_dest).gid, 0, sizeof opts->my_dest.gid);
-
-  opts->my_dest.qpn = opts->c_ctx->qp->qp_num;
-  opts->my_dest.psn = lrand48() & 0xffffff;
-  inet_ntop(AF_INET6, &(opts->my_dest).gid, opts->gid, sizeof opts->gid);
-  printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         opts->my_dest.lid, opts->my_dest.qpn, opts->my_dest.psn, opts->gid);
-
+  int error = validate_ctx (opts, 1);
 
   if (opts->rank == 0)  //client
     opts->rem_dest = pp_client_exch_dest(opts->servername, opts->port, &(opts->my_dest));
@@ -841,47 +847,7 @@ int main(int argc, char *argv[])
 
 
   opts->s_ctx = pp_init_ctx(opts->ib_dev, opts->size, opts->rx_depth, opts->tx_depth, opts->ib_port, opts->use_event, !(opts->servername));
-  if (!(opts->s_ctx))
-    return 1;
-
-  opts->s_ctx->routs = pp_post_recv(opts->s_ctx, opts->s_ctx->rx_depth);
-  if (opts->s_ctx->routs < opts->s_ctx->rx_depth) {
-      fprintf(stderr, "Couldn't post receive (%d)\n", opts->s_ctx->routs);
-      return 1;
-    }
-
-  if (opts->use_event)
-    if (ibv_req_notify_cq(opts->s_ctx->cq, 0)) {
-        fprintf(stderr, "Couldn't request CQ notification\n");
-        return 1;
-      }
-
-
-  if (pp_get_port_info(opts->s_ctx->context, opts->ib_port, &(opts->s_ctx->portinfo))) {
-      fprintf(stderr, "Couldn't get port info\n");
-      return 1;
-    }
-
-  opts->my_dest.lid = opts->s_ctx->portinfo.lid;
-  if (opts->s_ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !(opts->my_dest).lid) {
-      fprintf(stderr, "Couldn't get local LID\n");
-      return 1;
-    }
-
-  if (opts->gidx >= 0) {
-      if (ibv_query_gid(opts->s_ctx->context, opts->ib_port, opts->gidx, &(opts->my_dest).gid)) {
-          fprintf(stderr, "Could not get local gid for gid index %d\n", opts->gidx);
-          return 1;
-        }
-    } else
-    memset(&(opts->my_dest).gid, 0, sizeof opts->my_dest.gid);
-
-  opts->my_dest.qpn = opts->s_ctx->qp->qp_num;
-  opts->my_dest.psn = lrand48() & 0xffffff;
-  inet_ntop(AF_INET6, &(opts->my_dest).gid, opts->gid, sizeof opts->gid);
-  printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         opts->my_dest.lid, opts->my_dest.qpn, opts->my_dest.psn, opts->gid);
-
+  validate_ctx (opts, 0);
 
   if (opts->rank != 0)  //client
     opts->rem_dest = pp_client_exch_dest(opts->servername, opts->port, &(opts->my_dest));

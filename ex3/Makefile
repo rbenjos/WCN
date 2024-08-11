@@ -1,8 +1,8 @@
 all: client
 
-client: All_reduce.c
-	 gcc All_reduce.c -libverbs -o client --verbose
+client: bw_template.c
+	 gcc bw_template.c -libverbs -o node --verbose
 
 clean:
-	rm -f client
+	rm -f node
 
