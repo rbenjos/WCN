@@ -656,7 +656,7 @@ int main(int argc, char *argv[])
 {
   options* opts = calloc (1, sizeof(options));
   opts->ib_devname = NULL;
-  opts->port = 9090;
+  opts->port = 9898;
   opts->ib_port = 1;
   opts->mtu = IBV_MTU_2048;
   opts->rx_depth = 100;
@@ -751,6 +751,8 @@ int main(int argc, char *argv[])
           case 'v':
             opts->vec->a = atoi(strtok(optarg, ","));
             opts->vec->b = atoi(strtok(NULL, ","));
+            opts->sol->a = opts->vec->a;
+            opts->sol->b = opts->vec->b;
           break;
 
           case 'k':
@@ -836,7 +838,8 @@ int main(int argc, char *argv[])
           return 1;
         }
       pp_wait_completions(opts->c_ctx, opts->iters);
-      opts->sol = (struct vector*)opts->c_ctx->buf;
+      opts->sol->a += ((struct vector*)opts->c_ctx->buf)->a;
+      opts->sol->b += ((struct vector*)opts->c_ctx->buf)->b;
 
       printf("%d %d\n",opts->sol->a,opts->sol->b);
       printf("Server Done.\n");
@@ -884,7 +887,8 @@ int main(int argc, char *argv[])
           return 1;
         }
       pp_wait_completions(opts->s_ctx, opts->iters);
-      opts->sol = (struct vector*)opts->s_ctx->buf;
+      opts->sol->a += ((struct vector*)opts->s_ctx->buf)->a;
+      opts->sol->b += ((struct vector*)opts->s_ctx->buf)->b;
 
       printf("%d %d\n",opts->sol->a,opts->sol->b);
       printf("Server Done.\n");
