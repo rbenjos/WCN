@@ -579,121 +579,52 @@ static void usage(const char *argv0)
 struct vector{
     int a;
     int b;
-};
+} typedef vector;
 
-
-int validate_ctx(struct pingpong_context* ctx, struct pingpong_dest* my_dest, int ib_port,
-  int gidx, struct pingpong_dest* rem_dest, char gid[33], int use_event)
-{
-
-  if (!ctx)
-    return 1;
-
-  ctx->routs = pp_post_recv(ctx, ctx->rx_depth);
-  if (ctx->routs < ctx->rx_depth) {
-    fprintf(stderr, "Couldn't post receive (%d)\n", ctx->routs);
-    return 1;
-  }
-
-  if (use_event)
-    if (ibv_req_notify_cq(ctx->cq, 0)) {
-      fprintf(stderr, "Couldn't request CQ notification\n");
-      return 1;
-    }
-
-
-  if (pp_get_port_info(ctx->context, ib_port, &ctx->portinfo)) {
-    fprintf(stderr, "Couldn't get port info\n");
-    return 1;
-  }
-
-  my_dest->lid = ctx->portinfo.lid;
-  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest->lid) {
-    fprintf(stderr, "Couldn't get local LID\n");
-    return 1;
-  }
-
-  if (gidx >= 0) {
-    if (ibv_query_gid(ctx->context, ib_port, gidx, &my_dest->gid)) {
-      fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
-      return 1;
-    }
-  } else
-    memset(&my_dest->gid, 0, sizeof my_dest->gid);
-
-}
-
-int handle_client(struct pingpong_context* ctx, struct pingpong_dest* rem_dest, int port,
-    struct pingpong_dest my_dest, int ib_port, enum ibv_mtu mtu,
-    int sl, int gidx, struct vector* vec, int tx_depth, int iters, char* servername)
-{
-  rem_dest = pp_client_exch_dest(servername, port, &my_dest);
-  if (!rem_dest)
-    return 1;
-  if (pp_connect_ctx(ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
-    return 1;
-  memcpy(ctx->buf,vec,sizeof(struct vector));
-  int i;
-  for (i = 0; i < iters; i++) {
-    if ((i != 0) && (i % tx_depth == 0)) {
-      pp_wait_completions(ctx, tx_depth);
-    }
-    if (pp_post_send(ctx)) {
-      fprintf(stderr, "Client couldn't post send\n");
-      return 1;
-    }
-  }
-  printf("Client Done.\n");
-  return 0;
-}
-
-
-int handle_server(struct pingpong_context* ctx, struct pingpong_dest* rem_dest, int port,
-    struct pingpong_dest my_dest, int ib_port, enum ibv_mtu mtu,
-    int sl, int gidx, struct vector* vec,int iters){
-  rem_dest = pp_server_exch_dest(ctx, ib_port, mtu, port, sl, &my_dest, gidx);
-  if (!rem_dest)
-    return 1;
-  if (pp_post_send(ctx)) {
-    fprintf(stderr, "Server couldn't post send\n");
-    return 1;
-  }
-  pp_wait_completions(ctx, iters);
-  vec = (struct vector*)ctx->buf;
-
-  printf("%d\n%d\n",vec->a,vec->b);
-  printf("Server Done.\n");
-  return 0;
-}
+struct options{
+    struct ibv_device      **dev_list;
+    struct ibv_device       *ib_dev;
+    struct pingpong_context *c_ctx;
+    struct pingpong_context *s_ctx;
+    struct pingpong_dest     my_dest;
+    struct pingpong_dest    *rem_dest;
+    char                    *ib_devname;
+    char                    *servername;
+    int                      port;
+    int                      ib_port;
+    enum ibv_mtu             mtu;
+    int                      rx_depth;
+    int                      tx_depth;
+    int                      iters;
+    int                      use_event;
+    int                      size;
+    int                      sl;
+    int                      gidx;
+    char                     gid[33];
+    struct vector*           vec;
+    struct vector*           sol;
+    int                      rank;
+} typedef options;
 
 int main(int argc, char *argv[])
 {
-  struct ibv_device      **dev_list;
-  struct ibv_device       *ib_dev;
-  struct pingpong_context *c_ctx;
-  struct pingpong_context *s_ctx;
-  struct pingpong_dest     my_dest;
-  struct pingpong_dest    *rem_dest;
-  char                    *ib_devname = NULL;
-  char                    *servername;
-  int                      port = 12345;
-  int                      ib_port = 1;
-  enum ibv_mtu             mtu = IBV_MTU_2048;
-  int                      rx_depth = 100;
-  int                      tx_depth = 100;
-  int                      iters = 1000;
-  int                      use_event = 0;
-  int                      size = 4096;
-  int                      sl = 0;
-  int                      gidx = -1;
-  char                     gid[33];
-  struct vector*           vec;
-  struct vector*           sol;
-  int                      rank;
+  options* opts = calloc (1, sizeof(options));
+  opts->ib_devname = NULL;
+  opts->port = 9090;
+  opts->ib_port = 1;
+  opts->mtu = IBV_MTU_2048;
+  opts->rx_depth = 100;
+  opts->tx_depth = 100;
+  opts->iters = 1000;
+  opts->use_event = 0;
+  opts->size = 4096;
+  opts->sl = 0;
+  opts->gidx = -1;
+  opts->gid[33];
 
-  srand48(getpid() * time(NULL));\
-  vec = calloc(1, sizeof(struct vector));
-  sol = calloc(1, sizeof(struct vector));
+  opts->vec = calloc(1, sizeof(struct vector));
+  opts->sol = calloc(1, sizeof(struct vector));
+  srand48(getpid() * time(NULL));
 
   while (1) {
       int c;
@@ -720,64 +651,64 @@ int main(int argc, char *argv[])
 
       switch (c) {
           case 'p':
-            port = strtol(optarg, NULL, 0);
-          if (port < 0 || port > 65535) {
+            opts->port = strtol(optarg, NULL, 0);
+          if (opts->port < 0 || opts->port > 65535) {
               usage(argv[0]);
               return 1;
             }
           break;
 
           case 'd':
-            ib_devname = strdup(optarg);
+            opts->ib_devname = strdup(optarg);
           break;
 
           case 'i':
-            ib_port = strtol(optarg, NULL, 0);
-          if (ib_port < 0) {
+            opts->ib_port = strtol(optarg, NULL, 0);
+          if (opts->ib_port < 0) {
               usage(argv[0]);
               return 1;
             }
           break;
 
           case 's':
-            size = strtol(optarg, NULL, 0);
+            opts->size = strtol(optarg, NULL, 0);
           break;
 
           case 'm':
-            mtu = pp_mtu_to_enum(strtol(optarg, NULL, 0));
-          if (mtu < 0) {
+            opts->mtu = pp_mtu_to_enum(strtol(optarg, NULL, 0));
+          if (opts->mtu < 0) {
               usage(argv[0]);
               return 1;
             }
           break;
 
           case 'r':
-            rx_depth = strtol(optarg, NULL, 0);
+            opts->rx_depth = strtol(optarg, NULL, 0);
           break;
 
           case 'n':
-            iters = strtol(optarg, NULL, 0);
+            opts->iters = strtol(optarg, NULL, 0);
           break;
 
           case 'l':
-            sl = strtol(optarg, NULL, 0);
+            opts->sl = strtol(optarg, NULL, 0);
           break;
 
           case 'e':
-            ++use_event;
+            ++opts->use_event;
           break;
 
           case 'g':
-            gidx = strtol(optarg, NULL, 0);
+            opts->gidx = strtol(optarg, NULL, 0);
           break;
 
           case 'v':
-            vec->a = atoi(strtok(optarg, ","));
-            vec->b = atoi(strtok(NULL, ","));
+            opts->vec->a = atoi(strtok(optarg, ","));
+            opts->vec->b = atoi(strtok(NULL, ","));
           break;
 
           case 'k':
-            rank = strtol(optarg,NULL,0);
+            opts->rank = strtol(optarg,NULL,0);
           break;
 
           default:
@@ -787,7 +718,7 @@ int main(int argc, char *argv[])
     }
 
   if (optind == argc - 1)
-    servername = strdup(argv[optind]);
+    opts->servername = strdup(argv[optind]);
   else if (optind < argc) {
       usage(argv[0]);
       return 1;
@@ -795,101 +726,201 @@ int main(int argc, char *argv[])
 
   page_size = sysconf(_SC_PAGESIZE);
 
-  dev_list = ibv_get_device_list(NULL);
-  if (!dev_list) {
+  opts->dev_list = ibv_get_device_list(NULL);
+  if (!(opts->dev_list)) {
       perror("Failed to get IB devices list");
       return 1;
     }
 
-  if (!ib_devname) {
-      ib_dev = *dev_list;
-      if (!ib_dev) {
+  if (!(opts->ib_devname)) {
+      opts->ib_dev = *(opts->dev_list);
+      if (!(opts->ib_dev)) {
           fprintf(stderr, "No IB devices found\n");
           return 1;
         }
     } else {
       int i;
-      for (i = 0; dev_list[i]; ++i)
-        if (!strcmp(ibv_get_device_name(dev_list[i]), ib_devname))
+      for (i = 0; opts->dev_list[i]; ++i)
+        if (!strcmp(ibv_get_device_name(opts->dev_list[i]), opts->ib_devname))
           break;
-      ib_dev = dev_list[i];
-      if (!ib_dev) {
-          fprintf(stderr, "IB device %s not found\n", ib_devname);
+      opts->ib_dev = opts->dev_list[i];
+      if (!(opts->ib_dev)) {
+          fprintf(stderr, "IB device %s not found\n", opts->ib_devname);
           return 1;
         }
     }
 
 ///////////////////client//////////////////////////////////////////////////////
 
-  c_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
-  int c_valid = validate_ctx(c_ctx,&my_dest,ib_port,gidx,rem_dest,gid,use_event);
-  my_dest.qpn = c_ctx->qp->qp_num;
-  my_dest.psn = lrand48() & 0xffffff;
-  inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
+  opts->c_ctx = pp_init_ctx(opts->ib_dev, opts->size, opts->rx_depth, opts->tx_depth, opts->ib_port, opts->use_event, !(opts->servername));
+  if (!(opts->c_ctx))
+    return 1;
+
+  opts->c_ctx->routs = pp_post_recv(opts->c_ctx, opts->c_ctx->rx_depth);
+  if (opts->c_ctx->routs < opts->c_ctx->rx_depth) {
+      fprintf(stderr, "Couldn't post receive (%d)\n", opts->c_ctx->routs);
+      return 1;
+    }
+
+  if (opts->use_event)
+    if (ibv_req_notify_cq(opts->c_ctx->cq, 0)) {
+        fprintf(stderr, "Couldn't request CQ notification\n");
+        return 1;
+      }
+
+
+  if (pp_get_port_info(opts->c_ctx->context, opts->ib_port, &(opts->c_ctx->portinfo))) {
+      fprintf(stderr, "Couldn't get port info\n");
+      return 1;
+    }
+
+  opts->my_dest.lid = opts->c_ctx->portinfo.lid;
+  if (opts->c_ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !(opts->my_dest).lid) {
+      fprintf(stderr, "Couldn't get local LID\n");
+      return 1;
+    }
+
+  if (opts->gidx >= 0) {
+      if (ibv_query_gid(opts->c_ctx->context, opts->ib_port, opts->gidx, &(opts->my_dest).gid)) {
+          fprintf(stderr, "Could not get local gid for gid index %d\n", opts->gidx);
+          return 1;
+        }
+    } else
+    memset(&(opts->my_dest).gid, 0, sizeof opts->my_dest.gid);
+
+  opts->my_dest.qpn = opts->c_ctx->qp->qp_num;
+  opts->my_dest.psn = lrand48() & 0xffffff;
+  inet_ntop(AF_INET6, &(opts->my_dest).gid, opts->gid, sizeof opts->gid);
   printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         my_dest.lid, my_dest.qpn, my_dest.psn, gid);
+         opts->my_dest.lid, opts->my_dest.qpn, opts->my_dest.psn, opts->gid);
 
 
-
-  if (rank == 0)  //client
-  {
-    int c_handled = handle_client(c_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,tx_depth, iters, servername);
-    }
-    printf("Client Done.\n");
-  }
+  if (opts->rank == 0)  //client
+    opts->rem_dest = pp_client_exch_dest(opts->servername, opts->port, &(opts->my_dest));
   else  // server
-  {
-    rem_dest = pp_server_exch_dest(c_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
-    if (!rem_dest)
-      return 1;
-    if (pp_post_send(c_ctx)) {
-      fprintf(stderr, "Server couldn't post send\n");
-      return 1;
-    }
-    pp_wait_completions(c_ctx, iters);
-    sol = (struct vector*)c_ctx->buf;
+    opts->rem_dest = pp_server_exch_dest(opts->c_ctx, opts->ib_port, opts->mtu, opts->port, opts->sl, &(opts->my_dest), opts->gidx);
 
-    printf("%d\n%d\n",sol->a,sol->b);
-    printf("Server Done.\n");
-  }
+  if (!(opts->rem_dest))
+    return 1;
 
-
-  inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
+  inet_ntop(AF_INET6, &(opts->rem_dest->gid), opts->gid, sizeof opts->gid);
   printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         rem_dest->lid, rem_dest->qpn, rem_dest->psn, gid);
+         opts->rem_dest->lid, opts->rem_dest->qpn, opts->rem_dest->psn,opts->gid);
 
+  if (opts->rank == 0)
+    if (pp_connect_ctx(opts->c_ctx, opts->ib_port, opts->my_dest.psn, opts->mtu, opts->sl, opts->rem_dest, opts->gidx))
+      return 1;
 
+  if (opts->rank == 0) {
+      memcpy(opts->c_ctx->buf,opts->vec,sizeof(struct vector));
+      int i;
+      for (i = 0; i < opts->iters; i++) {
+          if ((i != 0) && (i % opts->tx_depth == 0)) {
+              pp_wait_completions(opts->c_ctx, opts->tx_depth);
+            }
+          if (pp_post_send(opts->c_ctx)) {
+              fprintf(stderr, "Client couldn't post send\n");
+              return 1;
+            }
+        }
+      printf("Client Done.\n");
+    } else {
+      if (pp_post_send(opts->c_ctx)) {
+          fprintf(stderr, "Server couldn't post send\n");
+          return 1;
+        }
+      pp_wait_completions(opts->c_ctx, opts->iters);
+      opts->sol = (struct vector*)opts->c_ctx->buf;
 
-
+      printf("%d %d\n",opts->sol->a,opts->sol->b);
+      printf("Server Done.\n");
+    }
 
 
 ////////////////////////////server/////////////////////////////////////////////
 
-  s_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername);
-  int s_valid = validate_ctx(s_ctx,&my_dest,ib_port,gidx,rem_dest,gid,use_event);
 
-  my_dest.qpn = s_ctx->qp->qp_num;
-  my_dest.psn = lrand48() & 0xffffff;
-  inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
+  opts->s_ctx = pp_init_ctx(opts->ib_dev, opts->size, opts->rx_depth, opts->tx_depth, opts->ib_port, opts->use_event, !(opts->servername));
+  if (!(opts->s_ctx))
+    return 1;
+
+  opts->s_ctx->routs = pp_post_recv(opts->s_ctx, opts->s_ctx->rx_depth);
+  if (opts->s_ctx->routs < opts->s_ctx->rx_depth) {
+      fprintf(stderr, "Couldn't post receive (%d)\n", opts->s_ctx->routs);
+      return 1;
+    }
+
+  if (opts->use_event)
+    if (ibv_req_notify_cq(opts->s_ctx->cq, 0)) {
+        fprintf(stderr, "Couldn't request CQ notification\n");
+        return 1;
+      }
+
+
+  if (pp_get_port_info(opts->s_ctx->context, opts->ib_port, &(opts->s_ctx->portinfo))) {
+      fprintf(stderr, "Couldn't get port info\n");
+      return 1;
+    }
+
+  opts->my_dest.lid = opts->s_ctx->portinfo.lid;
+  if (opts->s_ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !(opts->my_dest).lid) {
+      fprintf(stderr, "Couldn't get local LID\n");
+      return 1;
+    }
+
+  if (opts->gidx >= 0) {
+      if (ibv_query_gid(opts->s_ctx->context, opts->ib_port, opts->gidx, &(opts->my_dest).gid)) {
+          fprintf(stderr, "Could not get local gid for gid index %d\n", opts->gidx);
+          return 1;
+        }
+    } else
+    memset(&(opts->my_dest).gid, 0, sizeof opts->my_dest.gid);
+
+  opts->my_dest.qpn = opts->s_ctx->qp->qp_num;
+  opts->my_dest.psn = lrand48() & 0xffffff;
+  inet_ntop(AF_INET6, &(opts->my_dest).gid, opts->gid, sizeof opts->gid);
   printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         my_dest.lid, my_dest.qpn, my_dest.psn, gid);
+         opts->my_dest.lid, opts->my_dest.qpn, opts->my_dest.psn, opts->gid);
 
 
-  if (rank != 0)  //client
-  {
-    int c_handled = handle_client(s_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,tx_depth, iters, servername);
-  }
+  if (opts->rank != 0)  //client
+    opts->rem_dest = pp_client_exch_dest(opts->servername, opts->port, &(opts->my_dest));
   else  // server
-  {
-    int s_handled = handle_server(s_ctx,rem_dest,port,my_dest,ib_port,mtu,sl,gidx,vec,iters);
-  }
+    opts->rem_dest = pp_server_exch_dest(opts->s_ctx, opts->ib_port, opts->mtu, opts->port, opts->sl, &(opts->my_dest), opts->gidx);
 
+  if (!(opts->rem_dest))
+    return 1;
 
-  inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
+  inet_ntop(AF_INET6, &(opts->rem_dest->gid), opts->gid, sizeof opts->gid);
   printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         rem_dest->lid, rem_dest->qpn, rem_dest->psn, gid);
+         opts->rem_dest->lid, opts->rem_dest->qpn, opts->rem_dest->psn,opts->gid);
 
-  ibv_free_device_list(dev_list);
-  free(rem_dest);
-  return 0;
+  if (opts->rank != 0)
+    if (pp_connect_ctx(opts->s_ctx, opts->ib_port, opts->my_dest.psn, opts->mtu, opts->sl, opts->rem_dest, opts->gidx))
+      return 1;
+
+  if (opts->rank != 0) {
+      memcpy(opts->s_ctx->buf,opts->vec,sizeof(struct vector));
+      int i;
+      for (i = 0; i < opts->iters; i++) {
+          if ((i != 0) && (i % opts->tx_depth == 0)) {
+              pp_wait_completions(opts->s_ctx, opts->tx_depth);
+            }
+          if (pp_post_send(opts->s_ctx)) {
+              fprintf(stderr, "Client couldn't post send\n");
+              return 1;
+            }
+        }
+      printf("Client Done.\n");
+    } else {
+      if (pp_post_send(opts->s_ctx)) {
+          fprintf(stderr, "Server couldn't post send\n");
+          return 1;
+        }
+      pp_wait_completions(opts->s_ctx, opts->iters);
+      opts->sol = (struct vector*)opts->s_ctx->buf;
+
+      printf("%d %d\n",opts->sol->a,opts->sol->b);
+      printf("Server Done.\n");
+    }
 }
