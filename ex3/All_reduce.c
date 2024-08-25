@@ -652,6 +652,105 @@ int validate_ctx(options* opts, int flag){
          opts->my_dest.lid, opts->my_dest.qpn, opts->my_dest.psn, opts->gid);
 }
 
+int get_int (options *opts)
+{
+  opts->c_ctx = pp_init_ctx(opts->ib_dev, opts->size, opts->rx_depth, opts->tx_depth, opts->ib_port, opts->use_event, !(opts->servername));
+  int error = validate_ctx (opts, 1);
+
+  if (opts->rank == 0)  //client
+    opts->rem_dest = pp_client_exch_dest(opts->servername, opts->port, &(opts->my_dest));
+  else  // server
+    opts->rem_dest = pp_server_exch_dest(opts->c_ctx, opts->ib_port, opts->mtu, opts->port, opts->sl, &(opts->my_dest), opts->gidx);
+
+  if (!(opts->rem_dest))
+    return 1;
+
+  inet_ntop(AF_INET6, &(opts->rem_dest->gid), opts->gid, sizeof opts->gid);
+  printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
+         opts->rem_dest->lid, opts->rem_dest->qpn, opts->rem_dest->psn,opts->gid);
+
+  if (opts->rank == 0)
+    if (pp_connect_ctx(opts->c_ctx, opts->ib_port, opts->my_dest.psn, opts->mtu, opts->sl, opts->rem_dest, opts->gidx))
+      return 1;
+
+  if (opts->rank == 0) {
+      memcpy(opts->c_ctx->buf,opts->vec,sizeof(struct vector));
+      int i;
+      for (i = 0; i < opts->iters; i++) {
+          if ((i != 0) && (i % opts->tx_depth == 0)) {
+              pp_wait_completions(opts->c_ctx, opts->tx_depth);
+            }
+          if (pp_post_send(opts->c_ctx)) {
+              fprintf(stderr, "Client couldn't post send\n");
+              return 1;
+            }
+        }
+      printf("Client Done.\n");
+    } else {
+      if (pp_post_send(opts->c_ctx)) {
+          fprintf(stderr, "Server couldn't post send\n");
+          return 1;
+        }
+      pp_wait_completions(opts->c_ctx, opts->iters);
+      opts->sol->a += ((struct vector*)opts->c_ctx->buf)->a;
+      opts->sol->b += ((struct vector*)opts->c_ctx->buf)->b;
+
+      printf("%d %d\n",opts->sol->a,opts->sol->b);
+      printf("Server Done.\n");
+    }
+
+
+////////////////////////////server/////////////////////////////////////////////
+
+
+  opts->s_ctx = pp_init_ctx(opts->ib_dev, opts->size, opts->rx_depth, opts->tx_depth, opts->ib_port, opts->use_event, !(opts->servername));
+  validate_ctx (opts, 0);
+
+  if (opts->rank != 0)  //client
+    opts->rem_dest = pp_client_exch_dest(opts->servername, opts->port, &(opts->my_dest));
+  else  // server
+    opts->rem_dest = pp_server_exch_dest(opts->s_ctx, opts->ib_port, opts->mtu, opts->port, opts->sl, &(opts->my_dest), opts->gidx);
+
+  if (!(opts->rem_dest))
+    return 1;
+
+  inet_ntop(AF_INET6, &(opts->rem_dest->gid), opts->gid, sizeof opts->gid);
+  printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
+         opts->rem_dest->lid, opts->rem_dest->qpn, opts->rem_dest->psn,opts->gid);
+
+  if (opts->rank != 0)
+    if (pp_connect_ctx(opts->s_ctx, opts->ib_port, opts->my_dest.psn, opts->mtu, opts->sl, opts->rem_dest, opts->gidx))
+      return 1;
+
+  if (opts->rank != 0) {
+      memcpy(opts->s_ctx->buf,opts->vec,sizeof(struct vector));
+      int i;
+      for (i = 0; i < opts->iters; i++) {
+          if ((i != 0) && (i % opts->tx_depth == 0)) {
+              pp_wait_completions(opts->s_ctx, opts->tx_depth);
+            }
+          if (pp_post_send(opts->s_ctx)) {
+              fprintf(stderr, "Client couldn't post send\n");
+              return 1;
+            }
+        }
+      printf("Client Done.\n");
+    } else {
+      if (pp_post_send(opts->s_ctx)) {
+          fprintf(stderr, "Server couldn't post send\n");
+          return 1;
+        }
+      pp_wait_completions(opts->s_ctx, opts->iters);
+      opts->sol->a += ((struct vector*)opts->s_ctx->buf)->a;
+      opts->sol->b += ((struct vector*)opts->s_ctx->buf)->b;
+
+      printf("%d %d\n",opts->sol->a,opts->sol->b);
+      printf("Server Done.\n");
+    }
+  return 0;
+}
+
+
 int main(int argc, char *argv[])
 {
   options* opts = calloc (1, sizeof(options));
@@ -800,97 +899,6 @@ int main(int argc, char *argv[])
 
 ///////////////////client//////////////////////////////////////////////////////
 
-  opts->c_ctx = pp_init_ctx(opts->ib_dev, opts->size, opts->rx_depth, opts->tx_depth, opts->ib_port, opts->use_event, !(opts->servername));
-  int error = validate_ctx (opts, 1);
+  return get_int(opts);
 
-  if (opts->rank == 0)  //client
-    opts->rem_dest = pp_client_exch_dest(opts->servername, opts->port, &(opts->my_dest));
-  else  // server
-    opts->rem_dest = pp_server_exch_dest(opts->c_ctx, opts->ib_port, opts->mtu, opts->port, opts->sl, &(opts->my_dest), opts->gidx);
-
-  if (!(opts->rem_dest))
-    return 1;
-
-  inet_ntop(AF_INET6, &(opts->rem_dest->gid), opts->gid, sizeof opts->gid);
-  printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         opts->rem_dest->lid, opts->rem_dest->qpn, opts->rem_dest->psn,opts->gid);
-
-  if (opts->rank == 0)
-    if (pp_connect_ctx(opts->c_ctx, opts->ib_port, opts->my_dest.psn, opts->mtu, opts->sl, opts->rem_dest, opts->gidx))
-      return 1;
-
-  if (opts->rank == 0) {
-      memcpy(opts->c_ctx->buf,opts->vec,sizeof(struct vector));
-      int i;
-      for (i = 0; i < opts->iters; i++) {
-          if ((i != 0) && (i % opts->tx_depth == 0)) {
-              pp_wait_completions(opts->c_ctx, opts->tx_depth);
-            }
-          if (pp_post_send(opts->c_ctx)) {
-              fprintf(stderr, "Client couldn't post send\n");
-              return 1;
-            }
-        }
-      printf("Client Done.\n");
-    } else {
-      if (pp_post_send(opts->c_ctx)) {
-          fprintf(stderr, "Server couldn't post send\n");
-          return 1;
-        }
-      pp_wait_completions(opts->c_ctx, opts->iters);
-      opts->sol->a += ((struct vector*)opts->c_ctx->buf)->a;
-      opts->sol->b += ((struct vector*)opts->c_ctx->buf)->b;
-
-      printf("%d %d\n",opts->sol->a,opts->sol->b);
-      printf("Server Done.\n");
-    }
-
-
-////////////////////////////server/////////////////////////////////////////////
-
-
-  opts->s_ctx = pp_init_ctx(opts->ib_dev, opts->size, opts->rx_depth, opts->tx_depth, opts->ib_port, opts->use_event, !(opts->servername));
-  validate_ctx (opts, 0);
-
-  if (opts->rank != 0)  //client
-    opts->rem_dest = pp_client_exch_dest(opts->servername, opts->port, &(opts->my_dest));
-  else  // server
-    opts->rem_dest = pp_server_exch_dest(opts->s_ctx, opts->ib_port, opts->mtu, opts->port, opts->sl, &(opts->my_dest), opts->gidx);
-
-  if (!(opts->rem_dest))
-    return 1;
-
-  inet_ntop(AF_INET6, &(opts->rem_dest->gid), opts->gid, sizeof opts->gid);
-  printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         opts->rem_dest->lid, opts->rem_dest->qpn, opts->rem_dest->psn,opts->gid);
-
-  if (opts->rank != 0)
-    if (pp_connect_ctx(opts->s_ctx, opts->ib_port, opts->my_dest.psn, opts->mtu, opts->sl, opts->rem_dest, opts->gidx))
-      return 1;
-
-  if (opts->rank != 0) {
-      memcpy(opts->s_ctx->buf,opts->vec,sizeof(struct vector));
-      int i;
-      for (i = 0; i < opts->iters; i++) {
-          if ((i != 0) && (i % opts->tx_depth == 0)) {
-              pp_wait_completions(opts->s_ctx, opts->tx_depth);
-            }
-          if (pp_post_send(opts->s_ctx)) {
-              fprintf(stderr, "Client couldn't post send\n");
-              return 1;
-            }
-        }
-      printf("Client Done.\n");
-    } else {
-      if (pp_post_send(opts->s_ctx)) {
-          fprintf(stderr, "Server couldn't post send\n");
-          return 1;
-        }
-      pp_wait_completions(opts->s_ctx, opts->iters);
-      opts->sol->a += ((struct vector*)opts->s_ctx->buf)->a;
-      opts->sol->b += ((struct vector*)opts->s_ctx->buf)->b;
-
-      printf("%d %d\n",opts->sol->a,opts->sol->b);
-      printf("Server Done.\n");
-    }
 }
