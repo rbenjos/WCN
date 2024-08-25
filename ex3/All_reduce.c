@@ -577,8 +577,7 @@ static void usage(const char *argv0)
 }
 
 struct vector{
-    int a;
-    int b;
+    int array[4];
 } typedef vector;
 
 struct options{
@@ -652,6 +651,8 @@ int validate_ctx(options* opts, int flag){
          opts->my_dest.lid, opts->my_dest.qpn, opts->my_dest.psn, opts->gid);
 }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "UnreachableCode"
 int get_int (options *opts)
 {
   opts->c_ctx = pp_init_ctx(opts->ib_dev, opts->size, opts->rx_depth, opts->tx_depth, opts->ib_port, opts->use_event, !(opts->servername));
@@ -674,9 +675,8 @@ int get_int (options *opts)
       return 1;
 
   if (opts->rank == 0) {
-      memcpy(opts->c_ctx->buf,opts->vec,sizeof(struct vector));
-      int i;
-      for (i = 0; i < opts->iters; i++) {
+      memcpy(opts->c_ctx->buf,opts->sol,sizeof(struct vector));
+      for (int i = 0; i < opts->iters; i++) {
           if ((i != 0) && (i % opts->tx_depth == 0)) {
               pp_wait_completions(opts->c_ctx, opts->tx_depth);
             }
@@ -692,10 +692,12 @@ int get_int (options *opts)
           return 1;
         }
       pp_wait_completions(opts->c_ctx, opts->iters);
-      opts->sol->a += ((struct vector*)opts->c_ctx->buf)->a;
-      opts->sol->b += ((struct vector*)opts->c_ctx->buf)->b;
+      opts->sol->array[0] += ((struct vector*)opts->c_ctx->buf)->array[0];
+      opts->sol->array[1] += ((struct vector*)opts->c_ctx->buf)->array[1];
+      opts->sol->array[2] += ((struct vector*)opts->c_ctx->buf)->array[2];
+      opts->sol->array[3] += ((struct vector*)opts->c_ctx->buf)->array[3];
 
-      printf("%d %d\n",opts->sol->a,opts->sol->b);
+      printf("%d %d %d %d\n",opts->sol->array[0],opts->sol->array[1],opts->sol->array[2],opts->sol->array[3]);
       printf("Server Done.\n");
     }
 
@@ -723,9 +725,8 @@ int get_int (options *opts)
       return 1;
 
   if (opts->rank != 0) {
-      memcpy(opts->s_ctx->buf,opts->vec,sizeof(struct vector));
-      int i;
-      for (i = 0; i < opts->iters; i++) {
+      memcpy(opts->s_ctx->buf,opts->sol,sizeof(struct vector));
+      for (int i = 0; i < opts->iters; i++) {
           if ((i != 0) && (i % opts->tx_depth == 0)) {
               pp_wait_completions(opts->s_ctx, opts->tx_depth);
             }
@@ -740,15 +741,19 @@ int get_int (options *opts)
           fprintf(stderr, "Server couldn't post send\n");
           return 1;
         }
-      pp_wait_completions(opts->s_ctx, opts->iters);
-      opts->sol->a += ((struct vector*)opts->s_ctx->buf)->a;
-      opts->sol->b += ((struct vector*)opts->s_ctx->buf)->b;
 
-      printf("%d %d\n",opts->sol->a,opts->sol->b);
+      pp_wait_completions(opts->s_ctx, opts->iters);
+      opts->sol->array[0] += ((struct vector*)opts->c_ctx->buf)->array[0];
+      opts->sol->array[1] += ((struct vector*)opts->c_ctx->buf)->array[1];
+      opts->sol->array[2] += ((struct vector*)opts->c_ctx->buf)->array[2];
+      opts->sol->array[3] += ((struct vector*)opts->c_ctx->buf)->array[3];
+
+      printf("%d %d %d %d\n",opts->sol->array[0],opts->sol->array[1],opts->sol->array[2],opts->sol->array[3]);
       printf("Server Done.\n");
     }
   return 0;
 }
+#pragma clang diagnostic pop
 
 
 int main(int argc, char *argv[])
@@ -848,10 +853,15 @@ int main(int argc, char *argv[])
           break;
 
           case 'v':
-            opts->vec->a = atoi(strtok(optarg, ","));
-            opts->vec->b = atoi(strtok(NULL, ","));
-            opts->sol->a = opts->vec->a;
-            opts->sol->b = opts->vec->b;
+            opts->vec->array[0] = atoi(strtok(optarg, ","));
+            opts->vec->array[1] = atoi(strtok(NULL, ","));
+            opts->vec->array[2] = atoi(strtok(NULL, ","));
+            opts->vec->array[3] = atoi(strtok(NULL, ","));
+
+            opts->sol->array[0] = opts->vec->array[0];
+            opts->sol->array[1] = opts->vec->array[1];
+            opts->sol->array[2] = opts->vec->array[2];
+            opts->sol->array[3] = opts->vec->array[3];
           break;
 
           case 'k':
@@ -898,7 +908,11 @@ int main(int argc, char *argv[])
     }
 
 ///////////////////client//////////////////////////////////////////////////////
+  for (int i=0; i<4; ++i)
+  {
+    get_int(opts);
+  }
 
-  return get_int(opts);
+  return 0;
 
 }
