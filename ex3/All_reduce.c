@@ -24,20 +24,27 @@ enum {
 
 static int page_size;
 
+struct sub_context{
+    struct ibv_pd		*pd;
+    struct ibv_mr		*mr;
+    struct ibv_qp		*qp;
+    void			    *buf;
+
+} typedef sub_context;
+
 
 struct pingpong_context {
     struct ibv_context		*context;
     struct ibv_comp_channel	*channel;
-    struct ibv_pd		*pd;
-    struct ibv_mr		*mr;
     struct ibv_cq		*cq;
-    struct ibv_qp		*qp;
-    void			*buf;
+    sub_context         *in_ctx;
+    sub_context         *out_ctx;
     int				size;
     int				rx_depth;
     int				routs;
     struct ibv_port_attr	portinfo;
 };
+
 
 struct pingpong_dest {
     int lid;
@@ -97,7 +104,7 @@ void gid_to_wire_gid(const union ibv_gid *gid, char wgid[])
 
 static int pp_connect_ctx(struct pingpong_context *ctx, int port, int my_psn,
                           enum ibv_mtu mtu, int sl,
-                          struct pingpong_dest *dest, int sgid_idx)
+                          struct pingpong_dest *dest, int sgid_idx, int in_out)
 {
   struct ibv_qp_attr attr = {
       .qp_state		= IBV_QPS_RTR,
@@ -121,7 +128,10 @@ static int pp_connect_ctx(struct pingpong_context *ctx, int port, int my_psn,
       attr.ah_attr.grh.dgid = dest->gid;
       attr.ah_attr.grh.sgid_index = sgid_idx;
     }
-  if (ibv_modify_qp(ctx->qp, &attr,
+
+  struct ibv_qp *qp = ((in_out == 0) ? ctx->in_ctx->qp : ctx->out_ctx->qp);
+
+  if (ibv_modify_qp(qp, &attr,
                     IBV_QP_STATE              |
                     IBV_QP_AV                 |
                     IBV_QP_PATH_MTU           |
@@ -139,7 +149,7 @@ static int pp_connect_ctx(struct pingpong_context *ctx, int port, int my_psn,
   attr.rnr_retry	    = 7;
   attr.sq_psn	    = my_psn;
   attr.max_rd_atomic  = 1;
-  if (ibv_modify_qp(ctx->qp, &attr,
+  if (ibv_modify_qp(qp, &attr,
                     IBV_QP_STATE              |
                     IBV_QP_TIMEOUT            |
                     IBV_QP_RETRY_CNT          |
@@ -298,7 +308,7 @@ static struct pingpong_dest *pp_server_exch_dest(struct pingpong_context *ctx,
   sscanf(msg, "%x:%x:%x:%s", &rem_dest->lid, &rem_dest->qpn, &rem_dest->psn, gid);
   wire_gid_to_gid(gid, &rem_dest->gid);
 
-  if (pp_connect_ctx(ctx, ib_port, my_dest->psn, mtu, sl, rem_dest, sgid_idx)) {
+  if (pp_connect_ctx(ctx, ib_port, my_dest->psn, mtu, sl, rem_dest, sgid_idx, 0)) {
       fprintf(stderr, "Couldn't connect to remote QP\n");
       free(rem_dest);
       rem_dest = NULL;
@@ -338,13 +348,19 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
   ctx->rx_depth = rx_depth;
   ctx->routs    = rx_depth;
 
-  ctx->buf = malloc(roundup(size, page_size));
-  if (!ctx->buf) {
+  ctx->in_ctx = calloc(1, sizeof(sub_context));
+  ctx->out_ctx = calloc(1, sizeof(sub_context));
+
+
+  ctx->in_ctx->buf = malloc(roundup(size, page_size));
+  ctx->out_ctx->buf = malloc(roundup(size, page_size));
+  if ((!ctx->out_ctx->buf) || (!ctx->in_ctx->buf)) {
       fprintf(stderr, "Couldn't allocate work buf.\n");
       return NULL;
     }
 
-  memset(ctx->buf, 0x7b + is_server, size);
+  memset(ctx->in_ctx->buf, 0x7b + is_server, size);
+  memset(ctx->out_ctx->buf, 0x7b + is_server, size);
 
   ctx->context = ibv_open_device(ib_dev);
   if (!ctx->context) {
@@ -362,14 +378,20 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
     } else
     ctx->channel = NULL;
 
-  ctx->pd = ibv_alloc_pd(ctx->context);
-  if (!ctx->pd) {
+  ctx->in_ctx->pd = ibv_alloc_pd(ctx->context);
+  ctx->out_ctx->pd = ibv_alloc_pd(ctx->context);
+  if ((!ctx->out_ctx->pd) ||(!ctx->in_ctx->pd)) {
       fprintf(stderr, "Couldn't allocate PD\n");
       return NULL;
     }
 
-  ctx->mr = ibv_reg_mr(ctx->pd, ctx->buf, size, IBV_ACCESS_LOCAL_WRITE);
-  if (!ctx->mr) {
+  ctx->in_ctx->mr = ibv_reg_mr(ctx->in_ctx->pd, ctx->in_ctx->buf, size, IBV_ACCESS_LOCAL_WRITE);
+  if (!ctx->in_ctx->mr) {
+      fprintf(stderr, "Couldn't register MR\n");
+      return NULL;
+    }
+  ctx->out_ctx->mr = ibv_reg_mr(ctx->out_ctx->pd, ctx->out_ctx->buf, size, IBV_ACCESS_LOCAL_WRITE);
+  if (!ctx->out_ctx->mr) {
       fprintf(stderr, "Couldn't register MR\n");
       return NULL;
     }
@@ -394,8 +416,9 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
         .qp_type = IBV_QPT_RC
     };
 
-    ctx->qp = ibv_create_qp(ctx->pd, &attr);
-    if (!ctx->qp)  {
+    ctx->in_ctx->qp = ibv_create_qp(ctx->in_ctx->pd, &attr);
+    ctx->out_ctx->qp = ibv_create_qp(ctx->out_ctx->pd, &attr);
+    if ((!ctx->in_ctx->qp) || (!ctx->out_ctx->qp))  {
         fprintf(stderr, "Couldn't create QP\n");
         return NULL;
       }
@@ -410,37 +433,58 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
                            IBV_ACCESS_REMOTE_WRITE
     };
 
-    if (ibv_modify_qp(ctx->qp, &attr,
+    if (ibv_modify_qp(ctx->in_ctx->qp, &attr,
                       IBV_QP_STATE              |
                       IBV_QP_PKEY_INDEX         |
                       IBV_QP_PORT               |
                       IBV_QP_ACCESS_FLAGS)) {
-        fprintf(stderr, "Failed to modify QP to INIT\n");
+        fprintf(stderr, "Failed to modify IN QP to INIT\n");
         return NULL;
       }
+    if (ibv_modify_qp(ctx->out_ctx->qp, &attr,
+                    IBV_QP_STATE              |
+                    IBV_QP_PKEY_INDEX         |
+                    IBV_QP_PORT               |
+                    IBV_QP_ACCESS_FLAGS)) {
+      fprintf(stderr, "Failed to modify OUT QP to INIT\n");
+      return NULL;
+    }
   }
-
   return ctx;
 }
 
 int pp_close_ctx(struct pingpong_context *ctx)
 {
-  if (ibv_destroy_qp(ctx->qp)) {
+  if (ibv_destroy_qp(ctx->in_ctx->qp)) {
       fprintf(stderr, "Couldn't destroy QP\n");
       return 1;
     }
+  if (ibv_destroy_qp(ctx->out_ctx->qp)) {
+    fprintf(stderr, "Couldn't destroy QP\n");
+    return 1;
+  }
 
   if (ibv_destroy_cq(ctx->cq)) {
       fprintf(stderr, "Couldn't destroy CQ\n");
       return 1;
     }
 
-  if (ibv_dereg_mr(ctx->mr)) {
+  if (ibv_dereg_mr(ctx->in_ctx->mr)) {
       fprintf(stderr, "Couldn't deregister MR\n");
       return 1;
     }
 
-  if (ibv_dealloc_pd(ctx->pd)) {
+  if (ibv_dereg_mr(ctx->out_ctx->mr)) {
+      fprintf(stderr, "Couldn't deregister MR\n");
+      return 1;
+    }
+
+  if (ibv_dealloc_pd(ctx->in_ctx->pd)) {
+      fprintf(stderr, "Couldn't deallocate PD\n");
+      return 1;
+    }
+
+  if (ibv_dealloc_pd(ctx->out_ctx->pd)) {
       fprintf(stderr, "Couldn't deallocate PD\n");
       return 1;
     }
@@ -457,7 +501,8 @@ int pp_close_ctx(struct pingpong_context *ctx)
       return 1;
     }
 
-  free(ctx->buf);
+  free(ctx->in_ctx->buf);
+  free(ctx->out_ctx->buf);
   free(ctx);
 
   return 0;
@@ -466,9 +511,9 @@ int pp_close_ctx(struct pingpong_context *ctx)
 static int pp_post_recv(struct pingpong_context *ctx, int n)
 {
   struct ibv_sge list = {
-      .addr	= (uintptr_t) ctx->buf,
+      .addr	= (uintptr_t) ctx->in_ctx->buf,
       .length = ctx->size,
-      .lkey	= ctx->mr->lkey
+      .lkey	= ctx->in_ctx->mr->lkey
   };
   struct ibv_recv_wr wr = {
       .wr_id	    = PINGPONG_RECV_WRID,
@@ -480,7 +525,7 @@ static int pp_post_recv(struct pingpong_context *ctx, int n)
   int i;
 
   for (i = 0; i < n; ++i)
-    if (ibv_post_recv(ctx->qp, &wr, &bad_wr))
+    if (ibv_post_recv(ctx->in_ctx->qp, &wr, &bad_wr))
       break;
 
   return i;
@@ -489,9 +534,9 @@ static int pp_post_recv(struct pingpong_context *ctx, int n)
 static int pp_post_send(struct pingpong_context *ctx)
 {
   struct ibv_sge list = {
-      .addr	= (uint64_t)ctx->buf,
+      .addr	= (uint64_t)ctx->out_ctx->buf,
       .length = ctx->size,
-      .lkey	= ctx->mr->lkey
+      .lkey	= ctx->out_ctx->mr->lkey
   };
 
   struct ibv_send_wr *bad_wr, wr = {
@@ -503,7 +548,7 @@ static int pp_post_send(struct pingpong_context *ctx)
       .next       = NULL
   };
 
-  return ibv_post_send(ctx->qp, &wr, &bad_wr);
+  return ibv_post_send(ctx->out_ctx->qp, &wr, &bad_wr);
 }
 
 int pp_wait_completions(struct pingpong_context *ctx, int iters)
@@ -583,8 +628,7 @@ struct vector{
 struct options{
     struct ibv_device      **dev_list;
     struct ibv_device       *ib_dev;
-    struct pingpong_context *c_ctx;
-    struct pingpong_context *s_ctx;
+    struct pingpong_context *ctx;
     struct pingpong_dest     my_dest;
     struct pingpong_dest    *rem_dest;
     char                    *ib_devname;
@@ -607,10 +651,10 @@ struct options{
 
 
 int validate_ctx(options* opts, int flag){
-  if (!(opts->c_ctx))
+  if (!(opts->ctx))
     return 1;
 
-  struct pingpong_context* ctx = flag ? opts->c_ctx : opts->s_ctx;
+  struct pingpong_context* ctx = opts->ctx;
 
   ctx->routs = pp_post_recv(ctx, ctx->rx_depth);
   if (ctx->routs < ctx->rx_depth) {
@@ -644,7 +688,7 @@ int validate_ctx(options* opts, int flag){
     } else
     memset(&(opts->my_dest).gid, 0, sizeof opts->my_dest.gid);
 
-  opts->my_dest.qpn = ctx->qp->qp_num;
+  opts->my_dest.qpn = ctx->in_ctx->qp->qp_num;
   opts->my_dest.psn = lrand48() & 0xffffff;
   inet_ntop(AF_INET6, &(opts->my_dest).gid, opts->gid, sizeof opts->gid);
   printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
@@ -655,13 +699,11 @@ int validate_ctx(options* opts, int flag){
 #pragma ide diagnostic ignored "UnreachableCode"
 int get_int (options *opts)
 {
-  opts->c_ctx = pp_init_ctx(opts->ib_dev, opts->size, opts->rx_depth, opts->tx_depth, opts->ib_port, opts->use_event, !(opts->servername));
-  int error = validate_ctx (opts, 1);
 
   if (opts->rank == 0)  //client
     opts->rem_dest = pp_client_exch_dest(opts->servername, opts->port, &(opts->my_dest));
   else  // server
-    opts->rem_dest = pp_server_exch_dest(opts->c_ctx, opts->ib_port, opts->mtu, opts->port, opts->sl, &(opts->my_dest), opts->gidx);
+    opts->rem_dest = pp_server_exch_dest(opts->ctx, opts->ib_port, opts->mtu, opts->port, opts->sl, &(opts->my_dest), opts->gidx);
 
   if (!(opts->rem_dest))
     return 1;
@@ -671,32 +713,32 @@ int get_int (options *opts)
          opts->rem_dest->lid, opts->rem_dest->qpn, opts->rem_dest->psn,opts->gid);
 
   if (opts->rank == 0)
-    if (pp_connect_ctx(opts->c_ctx, opts->ib_port, opts->my_dest.psn, opts->mtu, opts->sl, opts->rem_dest, opts->gidx))
+    if (pp_connect_ctx(opts->ctx, opts->ib_port, opts->my_dest.psn, opts->mtu, opts->sl, opts->rem_dest, opts->gidx,1))
       return 1;
 
   if (opts->rank == 0) {
-      memcpy(opts->c_ctx->buf,opts->sol,sizeof(struct vector));
+      memcpy(opts->ctx->out_ctx->buf,opts->sol,sizeof(struct vector));
       for (int i = 0; i < opts->iters; i++) {
           if ((i != 0) && (i % opts->tx_depth == 0)) {
-              pp_wait_completions(opts->c_ctx, opts->tx_depth);
+              pp_wait_completions(opts->ctx, opts->tx_depth);
             }
-          if (pp_post_send(opts->c_ctx)) {
+          if (pp_post_send(opts->ctx)) {
               fprintf(stderr, "Client couldn't post send\n");
               return 1;
             }
         }
       printf("Client Done.\n");
     } else {
-      if (pp_post_send(opts->c_ctx)) {
+      if (pp_post_send(opts->ctx)) {
           fprintf(stderr, "Server couldn't post send\n");
           return 1;
         }
-      pp_wait_completions(opts->c_ctx, opts->iters);
-      opts->sol->array[0] += ((struct vector*)opts->c_ctx->buf)->array[0];
-      opts->sol->array[1] += ((struct vector*)opts->c_ctx->buf)->array[1];
-      opts->sol->array[2] += ((struct vector*)opts->c_ctx->buf)->array[2];
-      opts->sol->array[3] += ((struct vector*)opts->c_ctx->buf)->array[3];
-
+      pp_wait_completions(opts->ctx, opts->iters);
+//      opts->sol->array[0] += ((struct vector*)opts->ctx->in_buf)->array[0];
+//      opts->sol->array[1] += ((struct vector*)opts->ctx->in_buf)->array[1];
+//      opts->sol->array[2] += ((struct vector*)opts->ctx->in_buf)->array[2];
+//      opts->sol->array[3] += ((struct vector*)opts->ctx->in_buf)->array[3];
+//
       printf("%d %d %d %d\n",opts->sol->array[0],opts->sol->array[1],opts->sol->array[2],opts->sol->array[3]);
       printf("Server Done.\n");
     }
@@ -705,13 +747,10 @@ int get_int (options *opts)
 ////////////////////////////server/////////////////////////////////////////////
 
 
-  opts->s_ctx = pp_init_ctx(opts->ib_dev, opts->size, opts->rx_depth, opts->tx_depth, opts->ib_port, opts->use_event, !(opts->servername));
-  validate_ctx (opts, 0);
-
   if (opts->rank != 0)  //client
     opts->rem_dest = pp_client_exch_dest(opts->servername, opts->port, &(opts->my_dest));
   else  // server
-    opts->rem_dest = pp_server_exch_dest(opts->s_ctx, opts->ib_port, opts->mtu, opts->port, opts->sl, &(opts->my_dest), opts->gidx);
+    opts->rem_dest = pp_server_exch_dest(opts->ctx, opts->ib_port, opts->mtu, opts->port, opts->sl, &(opts->my_dest), opts->gidx);
 
   if (!(opts->rem_dest))
     return 1;
@@ -721,33 +760,33 @@ int get_int (options *opts)
          opts->rem_dest->lid, opts->rem_dest->qpn, opts->rem_dest->psn,opts->gid);
 
   if (opts->rank != 0)
-    if (pp_connect_ctx(opts->s_ctx, opts->ib_port, opts->my_dest.psn, opts->mtu, opts->sl, opts->rem_dest, opts->gidx))
+    if (pp_connect_ctx(opts->ctx, opts->ib_port, opts->my_dest.psn, opts->mtu, opts->sl, opts->rem_dest, opts->gidx, 1))
       return 1;
 
   if (opts->rank != 0) {
-      memcpy(opts->s_ctx->buf,opts->sol,sizeof(struct vector));
+      memcpy(opts->ctx->out_ctx->buf,opts->sol,sizeof(struct vector));
       for (int i = 0; i < opts->iters; i++) {
           if ((i != 0) && (i % opts->tx_depth == 0)) {
-              pp_wait_completions(opts->s_ctx, opts->tx_depth);
+              pp_wait_completions(opts->ctx, opts->tx_depth);
             }
-          if (pp_post_send(opts->s_ctx)) {
+          if (pp_post_send(opts->ctx)) {
               fprintf(stderr, "Client couldn't post send\n");
               return 1;
             }
         }
       printf("Client Done.\n");
     } else {
-      if (pp_post_send(opts->s_ctx)) {
+      if (pp_post_send(opts->ctx)) {
           fprintf(stderr, "Server couldn't post send\n");
           return 1;
         }
 
-      pp_wait_completions(opts->s_ctx, opts->iters);
-      opts->sol->array[0] += ((struct vector*)opts->c_ctx->buf)->array[0];
-      opts->sol->array[1] += ((struct vector*)opts->c_ctx->buf)->array[1];
-      opts->sol->array[2] += ((struct vector*)opts->c_ctx->buf)->array[2];
-      opts->sol->array[3] += ((struct vector*)opts->c_ctx->buf)->array[3];
-
+      pp_wait_completions(opts->ctx, opts->iters);
+//      opts->sol->array[0] += ((struct vector*)opts->ctx->in_buf)->array[0];
+//      opts->sol->array[1] += ((struct vector*)opts->ctx->in_buf)->array[1];
+//      opts->sol->array[2] += ((struct vector*)opts->ctx->in_buf)->array[2];
+//      opts->sol->array[3] += ((struct vector*)opts->ctx->in_buf)->array[3];
+//
       printf("%d %d %d %d\n",opts->sol->array[0],opts->sol->array[1],opts->sol->array[2],opts->sol->array[3]);
       printf("Server Done.\n");
     }
@@ -906,6 +945,10 @@ int main(int argc, char *argv[])
           return 1;
         }
     }
+
+  opts->ctx = pp_init_ctx(opts->ib_dev, opts->size, opts->rx_depth, opts->tx_depth, opts->ib_port, opts->use_event, !(opts->servername));
+  int error =  validate_ctx (opts, 1);
+
 
 ///////////////////client//////////////////////////////////////////////////////
   for (int i=0; i<4; ++i)
