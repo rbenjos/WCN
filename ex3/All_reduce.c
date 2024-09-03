@@ -579,6 +579,68 @@ struct vector{
     int b;
 }typedef vector;
 
+
+int func(int rank,  struct pingpong_context *in_ctx, vector* vec, int iters, int tx_depth, int flag){
+
+  if (flag == 0){
+      if (rank == 0) {
+          memcpy(in_ctx->buf, vec + sizeof(int), sizeof (int));
+          for (int i = 0; i < iters; i++) {
+              if ((i != 0) && (i % tx_depth == 0)) {
+                  pp_wait_completions(in_ctx, tx_depth);
+                }
+              if (pp_post_send(in_ctx)) {
+                  fprintf(stderr, "Client couldn't post send\n");
+                  return 1;
+                }
+            }
+          printf("Client Done.\n");
+        } else {
+          if (pp_post_send(in_ctx)) {
+              fprintf(stderr, "Server couldn't post send\n");
+              return 1;
+            }
+
+          pp_wait_completions(in_ctx, iters);
+          vector* tmp = (vector*) in_ctx->buf;
+          printf("%d %d \n", tmp->a, tmp->b);
+          printf("Server Done.\n");
+        }
+      return 0;
+
+  } else {
+      if (rank != 0) {
+          memcpy(in_ctx->buf, vec, sizeof (int));
+          for (int i = 0; i < iters; i++) {
+              if ((i != 0) && (i % tx_depth == 0)) {
+                  pp_wait_completions(in_ctx, tx_depth);
+                }
+              if (pp_post_send(in_ctx)) {
+                  fprintf(stderr, "Client couldn't post send\n");
+                  return 1;
+                }
+            }
+          printf("Client Done.\n");
+        } else {
+          if (pp_post_send(in_ctx)) {
+              fprintf(stderr, "Server couldn't post send\n");
+              return 1;
+            }
+
+          pp_wait_completions(in_ctx, iters);
+          vector* tmp = (vector*) in_ctx->buf;
+          printf("%d %d \n", tmp->a, tmp->b);
+          printf("Server Done.\n");
+        }
+      return 0;
+  }
+
+
+}
+
+
+
+
 int main(int argc, char *argv[])
 {
   struct ibv_device      **dev_list;
@@ -601,9 +663,11 @@ int main(int argc, char *argv[])
   char                     gid[33];
   int                      rank;
   vector                   *vec;
+  vector                   *sol;
 
   srand48(getpid() * time(NULL));
   vec = calloc(1, sizeof(struct vector));
+  sol = calloc(1, sizeof(struct vector));
 
   while (1) {
       int c;
@@ -688,6 +752,8 @@ int main(int argc, char *argv[])
           case 'v':
             vec->a = atoi(strtok(optarg, ","));
             vec->b = atoi(strtok(NULL, ","));
+            sol->a = vec->a;
+            sol->b = vec->b;
           break;
 
           default:
@@ -730,8 +796,6 @@ int main(int argc, char *argv[])
           return 1;
       }
     }
-
-
 
   struct shared_context* shared_ctx;
   shared_ctx = calloc (1,sizeof(shared_ctx));
@@ -812,29 +876,7 @@ int main(int argc, char *argv[])
     if (pp_connect_ctx(in_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
       return 1;
 
-  if (rank != 0) {
-      memcpy(in_ctx->buf, vec, sizeof (vector));
-      for (int i = 0; i < iters; i++) {
-          if ((i != 0) && (i % tx_depth == 0)) {
-              pp_wait_completions(in_ctx, tx_depth);
-            }
-          if (pp_post_send(in_ctx)) {
-              fprintf(stderr, "Client couldn't post send\n");
-              return 1;
-            }
-        }
-      printf("Client Done.\n");
-    } else {
-      if (pp_post_send(in_ctx)) {
-          fprintf(stderr, "Server couldn't post send\n");
-          return 1;
-        }
-
-      pp_wait_completions(in_ctx, iters);
-      vector* tmp = (vector*) in_ctx->buf;
-      printf("%d %d \n", tmp->a, tmp->b);
-      printf("Server Done.\n");
-    }
+  func (rank,in_ctx,vec,iters,tx_depth,1);
 
   struct pingpong_context* out_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername, shared_ctx);
 
@@ -896,33 +938,10 @@ int main(int argc, char *argv[])
     if (pp_connect_ctx(out_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
       return 1;
 
-  if (rank == 0) {
-      memcpy(out_ctx->buf, vec, sizeof (vector));
-      for (int i = 0; i < iters; i++) {
-          if ((i != 0) && (i % tx_depth == 0)) {
-              pp_wait_completions(out_ctx, tx_depth);
-            }
-          if (pp_post_send(out_ctx)) {
-              fprintf(stderr, "Client couldn't post send\n");
-              return 1;
-            }
-        }
-      printf("Client Done.\n");
-    } else {
-      if (pp_post_send(out_ctx)) {
-          fprintf(stderr, "Server couldn't post send\n");
-          return 1;
-        }
+  func (rank,out_ctx,vec,iters,tx_depth,0);
 
-      pp_wait_completions(out_ctx, iters);
-      vector* tmp = (vector*) out_ctx->buf;
-      printf("%d %d \n", tmp->a, tmp->b);
-      printf("Server Done.\n");
-    }
 
 //////////////////////////////////////////////////////////////////////////////////
-
-
 
   ibv_free_device_list(dev_list);
   free(rem_dest);
