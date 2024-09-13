@@ -642,7 +642,7 @@ void send_ibx_pair(struct pingpong_context *out_ctx, int *vec_arr, int tx_depth,
   printf("Client Done.\n");
 }
 
-void receive_ibx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr, int len)
+void receive_ibx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr, int len, int final)
 {
   if (pp_post_recv(in_ctx, 1)) {
       fprintf(stderr, "Server couldn't post receive\n");
@@ -651,7 +651,7 @@ void receive_ibx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr,
 
   pp_wait_completions(in_ctx, iters);
   int* received_arr = in_ctx->buf;
-  vec_arr[received_arr[1]] += received_arr[0];
+  vec_arr[received_arr[1]] = (vec_arr[received_arr[1]] * final) + received_arr[0];
   printf("item: %d, index: %d\n", received_arr[0],received_arr[1]);
   for (int i = 0; i < len; i++){
       printf("%d,", vec_arr[i]);
@@ -883,14 +883,17 @@ int main(int argc, char *argv[])
 
   printf("%s\n", "after second communications");
 
-  for(int i=0;i < 3; i++){
-
+  int final = 1;
+  for(int i=0; i < len * 2 - 2; i++){
+      if ( i == (len - 1) ){
+        final = 0;
+      }
       if (rank == 0){
-          send_ibx_pair (out_ctx,vec_arr,1,len,(rank-i + 4) % 4);
-          receive_ibx_pair(in_ctx,1,vec_arr,len);
+          send_ibx_pair (out_ctx,vec_arr,1,len,(rank-i + len * 2) % 4);
+          receive_ibx_pair(in_ctx,1,vec_arr,len, final);
         } else {
-          receive_ibx_pair(in_ctx,1,vec_arr, len);
-          send_ibx_pair (out_ctx,vec_arr,1,len,(rank-i + 4) % 4);
+          receive_ibx_pair(in_ctx,1,vec_arr, len, final);
+          send_ibx_pair (out_ctx,vec_arr,1,len,(rank-i + len * 2) % 4);
         }
     }
 
