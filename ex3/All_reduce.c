@@ -651,6 +651,8 @@ int main(int argc, char *argv[])
   int                      rank;
   vector                   *vec;
   vector                   *sol;
+  int                      *vec_arr;
+  int                       len;
 
   srand48(getpid() * time(NULL));
   vec = calloc(1, sizeof(struct vector));
@@ -672,10 +674,11 @@ int main(int argc, char *argv[])
           { .name = "gid-idx",  .has_arg = 1, .val = 'g' },
           { .name = "rank",  .has_arg = 1, .val = 'k' },
           { .name = "vec",  .has_arg = 1, .val = 'v' },
+          { .name = "len",  .has_arg = 1, .val = 'x' },
           { 0 }
       };
 
-      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:e:g:k:v:", long_options, NULL);
+      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:e:g:k:v:x:", long_options, NULL);
       if (c == -1)
         break;
 
@@ -736,11 +739,19 @@ int main(int argc, char *argv[])
             rank = strtol(optarg, NULL, 0);
           break;
 
+          case 'x':
+            len = strtol(optarg, NULL, 0);
+            vec_arr = malloc(sizeof(int) * len);
+            if (vec_arr == NULL){
+              printf("%s\n", "Failed to give memory");
+            }
+          break;
+
           case 'v':
-            vec->a = atoi(strtok(optarg, ","));
-            vec->b = atoi(strtok(NULL, ","));
-            sol->a = vec->a;
-            sol->b = vec->b;
+            vec_arr[0] = atoi(strtok(optarg, ","));
+          for (int i = 1; i < len; i++){
+              vec_arr[i] = atoi(strtok(NULL, ","));
+            }
           break;
 
           default:
@@ -749,7 +760,11 @@ int main(int argc, char *argv[])
         }
     }
 
-  printf("%d %d\n", vec->a,vec->b);
+  for (int i = 0; i < len; i++){
+      printf("%d,", vec_arr[i]);
+    }
+  printf("\n");
+
 
   if (optind == argc - 1)
     servername = strdup(argv[optind]);
