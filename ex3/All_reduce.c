@@ -629,6 +629,32 @@ void receive_vec (struct pingpong_context *in_ctx, int iters,int len)
   printf("Server Done.\n");
 }
 
+void send_ibx_pair(struct pingpong_context *out_ctx, int *vec_arr, int tx_depth, int len, int index)
+{
+  memcpy(out_ctx->buf, &vec_arr[index], sizeof (int));
+  memcpy(out_ctx->buf + sizeof(int), &index, sizeof (int));
+  if (pp_post_send(out_ctx)) {
+      fprintf(stderr, "Client couldn't post send\n");
+      exit(1);
+    }
+
+  pp_wait_completions(out_ctx, tx_depth);
+  printf("Client Done.\n");
+}
+
+void receive_ibx_pair (struct pingpong_context *in_ctx, int iters)
+{
+  if (pp_post_recv(in_ctx, 1)) {
+      fprintf(stderr, "Server couldn't post receive\n");
+      exit(1);
+    }
+
+  int* vec_arr = in_ctx->buf;
+  pp_wait_completions(in_ctx, iters);
+  printf("item: %d, index: %d\n", vec_arr[0],vec_arr[1]);
+  printf("Server Done.\n");
+}
+
 int main(int argc, char *argv[])
 {
   struct ibv_device      **dev_list;
@@ -866,11 +892,15 @@ int main(int argc, char *argv[])
 
   printf("%s\n", "after second communications");
   if (rank == 0){
-      send_vec (out_ctx,vec_arr,1,len);
-      receive_vec (in_ctx,1,len);
+//      send_vec (out_ctx,vec_arr,1,len);
+//      receive_vec (in_ctx,1,len);
+      send_ibx_pair (out_ctx,vec_arr,1,len,2);
+      receive_ibx_pair(in_ctx,1);
   } else {
-      receive_vec (in_ctx,1,len);
-      send_vec (out_ctx,vec_arr,1,len);
+//      receive_vec (in_ctx,1,len);
+//      send_vec (out_ctx,vec_arr,1,len);
+      receive_ibx_pair(in_ctx,1);
+      send_ibx_pair (out_ctx,vec_arr,1,len,2);
     }
 
 
