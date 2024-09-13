@@ -29,23 +29,23 @@ enum {
 
 static int page_size;
 
-struct shared_context{
-    struct ibv_context* context;
-    struct ibv_comp_channel* channel;
+struct shared_context {
+    struct ibv_context *context;
+    struct ibv_comp_channel *channel;
 };
 
 struct pingpong_context {
-    struct ibv_context		*context;
-    struct ibv_comp_channel	*channel;
-    struct ibv_pd		*pd;
-    struct ibv_mr		*mr;
-    struct ibv_cq		*cq;
-    struct ibv_qp		*qp;
-    void			*buf;
-    int				size;
-    int				rx_depth;
-    int				routs;
-    struct ibv_port_attr	portinfo;
+    struct ibv_context *context;
+    struct ibv_comp_channel *channel;
+    struct ibv_pd *pd;
+    struct ibv_mr *mr;
+    struct ibv_cq *cq;
+    struct ibv_qp *qp;
+    void *buf;
+    int size;
+    int rx_depth;
+    int routs;
+    struct ibv_port_attr portinfo;
 };
 
 struct pingpong_dest {
@@ -92,35 +92,31 @@ void wire_gid_to_gid(const char *wgid, union ibv_gid *gid)
   for (tmp[8] = 0, i = 0; i < 4; ++i) {
       memcpy(tmp, wgid + i * 8, 8);
       sscanf(tmp, "%x", &v32);
-      *(uint32_t *)(&gid->raw[i * 4]) = ntohl(v32);
+      *(uint32_t *) (&gid->raw[i * 4]) = ntohl(v32);
     }
 }
 
 void gid_to_wire_gid(const union ibv_gid *gid, char wgid[])
 {
-  int i;
-
-  for (i = 0; i < 4; ++i)
-    sprintf(&wgid[i * 8], "%08x", htonl(*(uint32_t *)(gid->raw + i * 4)));
+  for (int i = 0; i < 4; ++i)
+    sprintf(&wgid[i * 8], "%08x", htonl(*(uint32_t *) (gid->raw + i * 4)));
 }
 
-static int pp_connect_ctx(struct pingpong_context *ctx, int port, int my_psn,
-                          enum ibv_mtu mtu, int sl,
-                          struct pingpong_dest *dest, int sgid_idx)
+static int pp_connect_ctx(struct pingpong_context *ctx, int port, int my_psn,enum ibv_mtu mtu, int sl, struct pingpong_dest *dest, int sgid_idx)
 {
   struct ibv_qp_attr attr = {
-      .qp_state		= IBV_QPS_RTR,
-      .path_mtu		= mtu,
-      .dest_qp_num		= dest->qpn,
-      .rq_psn			= dest->psn,
-      .max_dest_rd_atomic	= 1,
-      .min_rnr_timer		= 12,
-      .ah_attr		= {
-          .is_global	= 0,
-          .dlid		= dest->lid,
-          .sl		= sl,
-          .src_path_bits	= 0,
-          .port_num	= port
+      .qp_state        = IBV_QPS_RTR,
+      .path_mtu        = mtu,
+      .dest_qp_num        = dest->qpn,
+      .rq_psn            = dest->psn,
+      .max_dest_rd_atomic    = 1,
+      .min_rnr_timer        = 12,
+      .ah_attr        = {
+          .is_global    = 0,
+          .dlid        = dest->lid,
+          .sl        = sl,
+          .src_path_bits    = 0,
+          .port_num    = port
       }
   };
 
@@ -131,23 +127,23 @@ static int pp_connect_ctx(struct pingpong_context *ctx, int port, int my_psn,
       attr.ah_attr.grh.sgid_index = sgid_idx;
     }
   if (ibv_modify_qp(ctx->qp, &attr,
-                    IBV_QP_STATE              |
-                    IBV_QP_AV                 |
-                    IBV_QP_PATH_MTU           |
-                    IBV_QP_DEST_QPN           |
-                    IBV_QP_RQ_PSN             |
+                    IBV_QP_STATE |
+                    IBV_QP_AV |
+                    IBV_QP_PATH_MTU |
+                    IBV_QP_DEST_QPN |
+                    IBV_QP_RQ_PSN |
                     IBV_QP_MAX_DEST_RD_ATOMIC |
                     IBV_QP_MIN_RNR_TIMER)) {
       fprintf(stderr, "Failed to modify QP to RTR\n");
       return 1;
     }
 
-  attr.qp_state	    = IBV_QPS_RTS;
-  attr.timeout	    = 14;
-  attr.retry_cnt	    = 7;
-  attr.rnr_retry	    = 7;
-  attr.sq_psn	    = my_psn;
-  attr.max_rd_atomic  = 1;
+  attr.qp_state = IBV_QPS_RTS;
+  attr.timeout = 14;
+  attr.retry_cnt = 7;
+  attr.rnr_retry = 7;
+  attr.sq_psn = my_psn;
+  attr.max_rd_atomic = 1;
   if (ibv_modify_qp(ctx->qp, &attr,
                     IBV_QP_STATE              |
                     IBV_QP_TIMEOUT            |
@@ -162,8 +158,7 @@ static int pp_connect_ctx(struct pingpong_context *ctx, int port, int my_psn,
   return 0;
 }
 
-static struct pingpong_dest *pp_client_exch_dest(const char *servername, int port,
-                                                 const struct pingpong_dest *my_dest)
+static struct pingpong_dest *pp_client_exch_dest(const char *servername, int port, const struct pingpong_dest *my_dest)
 {
   struct addrinfo *res, *t;
   struct addrinfo hints = {
@@ -233,11 +228,7 @@ static struct pingpong_dest *pp_client_exch_dest(const char *servername, int por
   return rem_dest;
 }
 
-static struct pingpong_dest *pp_server_exch_dest(struct pingpong_context *ctx,
-                                                 int ib_port, enum ibv_mtu mtu,
-                                                 int port, int sl,
-                                                 const struct pingpong_dest *my_dest,
-                                                 int sgid_idx)
+static struct pingpong_dest *pp_server_exch_dest(struct pingpong_context *ctx, int ib_port, enum ibv_mtu mtu, int port, int sl, const struct pingpong_dest *my_dest, int sgid_idx)
 {
   struct addrinfo *res, *t;
   struct addrinfo hints = {
@@ -314,7 +305,6 @@ static struct pingpong_dest *pp_server_exch_dest(struct pingpong_context *ctx,
       goto out;
     }
 
-
   gid_to_wire_gid(&my_dest->gid, gid);
   sprintf(msg, "%04x:%06x:%06x:%s", my_dest->lid, my_dest->qpn, my_dest->psn, gid);
   if (write(connfd, msg, sizeof msg) != sizeof msg) {
@@ -333,33 +323,25 @@ static struct pingpong_dest *pp_server_exch_dest(struct pingpong_context *ctx,
 
 #include <sys/param.h>
 
-static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
-                                            int rx_depth, int tx_depth, int port,
-                                            int use_event, int is_server, struct shared_context* shared_ctx)
+static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,int rx_depth, int tx_depth, int port, int use_event, int is_server, struct shared_context* shared_ctx)
 {
   struct pingpong_context *ctx;
-
   ctx = calloc(1, sizeof *ctx);
-
-
   if (!ctx)
     return NULL;
 
   ctx->context = shared_ctx->context;
   ctx->channel = shared_ctx->channel;
 
-  ctx->size     = size;
+  ctx->size = size;
   ctx->rx_depth = rx_depth;
-  ctx->routs    = rx_depth;
+  ctx->routs = rx_depth;
 
   ctx->buf = malloc(roundup(size, page_size));
   if (!ctx->buf) {
       fprintf(stderr, "Couldn't allocate work buf.\n");
       return NULL;
     }
-
-
-
 
   ctx->pd = ibv_alloc_pd(ctx->context);
   if (!ctx->pd) {
@@ -464,12 +446,12 @@ int pp_close_ctx(struct pingpong_context *ctx)
 static int pp_post_recv(struct pingpong_context *ctx, int n)
 {
   struct ibv_sge list = {
-      .addr	= (uintptr_t) ctx->buf,
+      .addr    = (uintptr_t) ctx->buf,
       .length = ctx->size,
-      .lkey	= ctx->mr->lkey
+      .lkey    = ctx->mr->lkey
   };
   struct ibv_recv_wr wr = {
-      .wr_id	    = PINGPONG_RECV_WRID,
+      .wr_id        = PINGPONG_RECV_WRID,
       .sg_list    = &list,
       .num_sge    = 1,
       .next       = NULL
@@ -486,13 +468,13 @@ static int pp_post_recv(struct pingpong_context *ctx, int n)
 static int pp_post_send(struct pingpong_context *ctx)
 {
   struct ibv_sge list = {
-      .addr	= (uint64_t)ctx->buf,
+      .addr    = (uint64_t) ctx->buf,
       .length = ctx->size,
-      .lkey	= ctx->mr->lkey
+      .lkey    = ctx->mr->lkey
   };
 
   struct ibv_send_wr *bad_wr, wr = {
-      .wr_id	    = PINGPONG_SEND_WRID,
+      .wr_id        = PINGPONG_SEND_WRID,
       .sg_list    = &list,
       .num_sge    = 1,
       .opcode     = IBV_WR_SEND,
@@ -505,8 +487,8 @@ static int pp_post_send(struct pingpong_context *ctx)
 
 int pp_wait_completions(struct pingpong_context *ctx, int iters)
 {
-    struct ibv_wc wc[WC_BATCH];
-    int ne, i;
+  struct ibv_wc wc[WC_BATCH];
+  int ne, i;
 
       do {
           ne = ibv_poll_cq(ctx->cq, WC_BATCH, wc);
@@ -608,21 +590,21 @@ void send_vec (struct pingpong_context *out_ctx, int *vec_arr, int tx_depth, int
   memcpy(out_ctx->buf, vec_arr, len * sizeof (int));
   if (pp_post_send(out_ctx)) {
       fprintf(stderr, "Client couldn't post send\n");
-              exit(1);
+      exit(1);
     }
 
   pp_wait_completions(out_ctx, tx_depth);
   printf("Client Done.\n");
 }
 
-void receive_vec (struct pingpong_context *in_ctx, int iters,int len)
+void receive_vec(struct pingpong_context *in_ctx, int iters, int len)
 {
   if (pp_post_recv(in_ctx, 1)) {
       fprintf(stderr, "Server couldn't post receive\n");
       exit(1);
     }
 
-  int* vec_arr = in_ctx->buf;
+  int *vec_arr = in_ctx->buf;
   pp_wait_completions(in_ctx, iters);
   for (int i = 0; i < len; i++){
       printf("%d,", vec_arr[i]);
@@ -656,13 +638,13 @@ void receive_ibx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr,
     }
 
   pp_wait_completions(in_ctx, iters);
-  int* received_arr = in_ctx->buf;
+  int *received_arr = in_ctx->buf;
 
   for(int i = 0 ; i < seg; i++){
     int index = received_arr[(i*2)+1];
     int item = received_arr[i*2];
       vec_arr[index] = (vec_arr[index] * final) + item;
-      printf("item: %d, index: %d\n", item , index);
+      printf("item: %d, index: %d\n", item, index);
     }
 
   for (int i = 0; i < len; i++){
@@ -674,30 +656,30 @@ void receive_ibx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr,
 
 int main(int argc, char *argv[])
 {
-  struct ibv_device      **dev_list;
-  struct ibv_device       *ib_dev;
+  struct ibv_device **dev_list;
+  struct ibv_device *ib_dev;
   struct pingpong_context *ctx;
-  struct pingpong_dest     in_my_dest;
-  struct pingpong_dest     out_my_dest;
-  struct pingpong_dest    *in_rem_dest;
-  struct pingpong_dest    *out_rem_dest;
-  char                    *ib_devname = NULL;
-  char                    *servername;
-  int                      port = 12345;
-  int                      ib_port = 1;
-  enum ibv_mtu             mtu = IBV_MTU_2048;
-  int                      rx_depth = 100;
-  int                      tx_depth = 100;
-  int                      iters = 1000;
-  int                      use_event = 0;
-  int                      size = 32;
-  int                      sl = 0;
-  int                      gidx = -1;
-  char                     gid[33];
-  int                      rank;
-  int                      *vec_arr;
-  int                      len;
-  int                      tmp_len;
+  struct pingpong_dest in_my_dest;
+  struct pingpong_dest out_my_dest;
+  struct pingpong_dest *in_rem_dest;
+  struct pingpong_dest *out_rem_dest;
+  char *ib_devname = NULL;
+  char *servername;
+  int port = 12345;
+  int ib_port = 1;
+  enum ibv_mtu mtu = IBV_MTU_2048;
+  int rx_depth = 100;
+  int tx_depth = 100;
+  int iters = 1000;
+  int use_event = 0;
+  int size = 32;
+  int sl = 0;
+  int gidx = -1;
+  char gid[33];
+  int rank;
+  int *vec_arr;
+  int len;
+  int tmp_len;
 
   srand48(getpid() * time(NULL));
 
@@ -705,20 +687,20 @@ int main(int argc, char *argv[])
       int c;
 
       static struct option long_options[] = {
-          { .name = "port",     .has_arg = 1, .val = 'p' },
-          { .name = "ib-dev",   .has_arg = 1, .val = 'd' },
-          { .name = "ib-port",  .has_arg = 1, .val = 'i' },
-          { .name = "size",     .has_arg = 1, .val = 's' },
-          { .name = "mtu",      .has_arg = 1, .val = 'm' },
-          { .name = "rx-depth", .has_arg = 1, .val = 'r' },
-          { .name = "iters",    .has_arg = 1, .val = 'n' },
-          { .name = "sl",       .has_arg = 1, .val = 'l' },
-          { .name = "events",   .has_arg = 0, .val = 'e' },
-          { .name = "gid-idx",  .has_arg = 1, .val = 'g' },
-          { .name = "rank",  .has_arg = 1, .val = 'k' },
-          { .name = "vec",  .has_arg = 1, .val = 'v' },
-          { .name = "len",  .has_arg = 1, .val = 'x' },
-          { 0 }
+          {.name = "port", .has_arg = 1, .val = 'p'},
+          {.name = "ib-dev", .has_arg = 1, .val = 'd'},
+          {.name = "ib-port", .has_arg = 1, .val = 'i'},
+          {.name = "size", .has_arg = 1, .val = 's'},
+          {.name = "mtu", .has_arg = 1, .val = 'm'},
+          {.name = "rx-depth", .has_arg = 1, .val = 'r'},
+          {.name = "iters", .has_arg = 1, .val = 'n'},
+          {.name = "sl", .has_arg = 1, .val = 'l'},
+          {.name = "events", .has_arg = 0, .val = 'e'},
+          {.name = "gid-idx", .has_arg = 1, .val = 'g'},
+          {.name = "rank", .has_arg = 1, .val = 'k'},
+          {.name = "vec", .has_arg = 1, .val = 'v'},
+          {.name = "len", .has_arg = 1, .val = 'x'},
+          {0}
       };
 
       c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:e:g:k:v:x:", long_options, NULL);
@@ -784,8 +766,8 @@ int main(int argc, char *argv[])
 
           case 'x':
             len = strtol(optarg, NULL, 0);
-            tmp_len = len % 4 == 0 ? len : len + (4 - len % 4);
-            vec_arr = calloc(tmp_len ,sizeof(int));
+          tmp_len = len % 4 == 0 ? len : len + (4 - len % 4);
+          vec_arr = calloc(tmp_len, sizeof(int));
           break;
 
           case 'v':
@@ -805,7 +787,6 @@ int main(int argc, char *argv[])
       printf("%d,", vec_arr[i]);
     }
   printf("\n");
-
 
   if (optind == argc - 1)
     servername = strdup(argv[optind]);
@@ -837,11 +818,11 @@ int main(int argc, char *argv[])
       if (!ib_dev) {
           fprintf(stderr, "IB device %s not found\n", ib_devname);
           return 1;
-      }
+        }
     }
 
-  struct shared_context* shared_ctx;
-  shared_ctx = calloc (1,sizeof(shared_ctx));
+  struct shared_context *shared_ctx;
+  shared_ctx = calloc(1, sizeof(shared_ctx));
   shared_ctx->context = ibv_open_device(ib_dev);
   if (!shared_ctx->context) {
       fprintf(stderr, "Couldn't get context for %s\n", ibv_get_device_name(ib_dev));
@@ -857,19 +838,17 @@ int main(int argc, char *argv[])
     } else
     shared_ctx->channel = NULL;
 
-  struct pingpong_context* in_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername, shared_ctx);
+  struct pingpong_context *in_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername, shared_ctx);
   if (!in_ctx)
     return 1;
 
+  adjust_ctx(&in_my_dest, ib_port, use_event, gidx, gid, in_ctx);
 
-  adjust_ctx (&in_my_dest, ib_port, use_event, gidx, gid, in_ctx);
-
-  struct pingpong_context* out_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername, shared_ctx);
+  struct pingpong_context *out_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername, shared_ctx);
   if (!out_ctx)
     return 1;
 
-
-  adjust_ctx (&out_my_dest, ib_port, use_event, gidx, gid, out_ctx);
+  adjust_ctx(&out_my_dest, ib_port, use_event, gidx, gid, out_ctx);
 
   if (rank == 0){
       out_my_dest = get_dest (&out_my_dest, out_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, out_ctx, 0);  // client = true = 0
@@ -885,7 +864,6 @@ int main(int argc, char *argv[])
   else {
       in_my_dest = get_dest (&in_my_dest, in_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, in_ctx, 1);    // client = false = 1
     }
-
 
   int seg = tmp_len / NUM_PROCESSES;
   int final = 1;
@@ -909,8 +887,9 @@ int main(int argc, char *argv[])
   free(in_rem_dest);
   free(out_rem_dest);
   free(vec_arr);
+  pp_close_ctx(in_ctx);
+  pp_close_ctx(out_ctx);
   return 0;
 }
-
 
 #pragma clang diagnostic pop
