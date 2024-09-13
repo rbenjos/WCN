@@ -629,7 +629,7 @@ void receive_vec (struct pingpong_context *in_ctx, int iters,int len)
   printf("Server Done.\n");
 }
 
-void send_ibx_pair(struct pingpong_context *out_ctx, int *vec_arr, int tx_depth, int len, int index, int seg)
+void send_ibx_pair(struct pingpong_context *out_ctx, int *vec_arr, int tx_depth, int index, int seg)
 {
   for(int i = 0 ; i < seg; i++){
       memcpy(out_ctx->buf + (sizeof(int) * (2 * i)), &vec_arr[index+i], sizeof (int));
@@ -695,6 +695,7 @@ int main(int argc, char *argv[])
   int                      rank;
   int                      *vec_arr;
   int                       len;
+  int                     tmp_len;
 
   srand48(getpid() * time(NULL));
 
@@ -781,10 +782,12 @@ int main(int argc, char *argv[])
 
           case 'x':
             len = strtol(optarg, NULL, 0);
-            vec_arr = malloc(sizeof(int) * len);
-            if (vec_arr == NULL){
-              printf("%s\n", "Failed to give memory");
-            }
+            tmp_len = len % 4 == 0 ? len : len + (4 - len % 4);
+            vec_arr = calloc(tmp_len ,sizeof(int));
+            if (vec_arr == NULL)
+              {
+                printf ("%s\n", "Failed to give memory");
+              }
           break;
 
           case 'v':
@@ -893,19 +896,19 @@ int main(int argc, char *argv[])
 
   printf("%s\n", "after second communications");
 
-  int seg = len / 4;
+  int seg = tmp_len / 4;
   int final = 1;
   for(int i=0; i < 6; i++){
       if ( i == 3 ){
         final = 0;
       }
-      int index = ((rank - i + len * 2) % 4) * seg;
+      int index = ((rank - i + tmp_len * 2) % 4) * seg;
       if (rank == 0){
-          send_ibx_pair (out_ctx,vec_arr,1,len,index,seg);
+          send_ibx_pair (out_ctx,vec_arr,1,index,seg);
           receive_ibx_pair(in_ctx,1,vec_arr,len, final,seg);
         } else {
           receive_ibx_pair(in_ctx,1,vec_arr, len, final,seg);
-          send_ibx_pair (out_ctx,vec_arr,1,len,index,seg);
+          send_ibx_pair (out_ctx,vec_arr,1,index,seg);
         }
     }
 
