@@ -17,7 +17,7 @@
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "UnreachableCode"
-#define WC_BATCH (10)
+#define WC_BATCH (1)
 
 enum {
     PINGPONG_RECV_WRID = 1,
@@ -473,13 +473,12 @@ static int pp_post_recv(struct pingpong_context *ctx, int n)
       .next       = NULL
   };
   struct ibv_recv_wr *bad_wr;
-  int i;
 
-  for (i = 0; i < n; ++i)
-    if (ibv_post_recv(ctx->qp, &wr, &bad_wr))
-      break;
+//  for (int i = 0; i < n; ++i)
+//    if (ibv_post_recv(ctx->qp, &wr, &bad_wr))
+//      break;
 
-  return i;
+  return ibv_post_recv(ctx->qp, &wr, &bad_wr);
 }
 
 static int pp_post_send(struct pingpong_context *ctx)
@@ -504,10 +503,8 @@ static int pp_post_send(struct pingpong_context *ctx)
 
 int pp_wait_completions(struct pingpong_context *ctx, int iters)
 {
-  int rcnt = 0, scnt = 0;
-  while (rcnt + scnt < iters) {
-      struct ibv_wc wc[WC_BATCH];
-      int ne, i;
+    struct ibv_wc wc[WC_BATCH];
+    int ne, i;
 
       do {
           ne = ibv_poll_cq(ctx->cq, WC_BATCH, wc);
@@ -518,40 +515,11 @@ int pp_wait_completions(struct pingpong_context *ctx, int iters)
 
         } while (ne < 1);
 
-      for (i = 0; i < ne; ++i) {
-          if (wc[i].status != IBV_WC_SUCCESS) {
-              fprintf(stderr, "Failed status %s (%d) for wr_id %d\n",
-                      ibv_wc_status_str(wc[i].status),
-                      wc[i].status, (int) wc[i].wr_id);
-              return 1;
-            }
-
-          switch ((int) wc[i].wr_id) {
-              case PINGPONG_SEND_WRID:
-                ++scnt;
-              break;
-
-              case PINGPONG_RECV_WRID:
-                if (--ctx->routs <= 10) {
-                    ctx->routs += pp_post_recv(ctx, ctx->rx_depth - ctx->routs);
-                    if (ctx->routs < ctx->rx_depth) {
-                        fprintf(stderr,
-                                "Couldn't post receive (%d)\n",
-                                ctx->routs);
-                        return 1;
-                      }
-                  }
-              ++rcnt;
-              break;
-
-              default:
-                fprintf(stderr, "Completion for unknown wr_id %d\n",
-                        (int) wc[i].wr_id);
-              return 1;
-            }
-        }
-
+  if (wc[0].status != IBV_WC_SUCCESS) {
+      fprintf(stderr, "Failed status %s (%d) for wr_id %d\n", ibv_wc_status_str(wc[0].status), wc[0].status, (int)wc[0].wr_id);
+      return -1;
     }
+
   return 0;
 }
 
@@ -580,29 +548,27 @@ struct vector{
 }typedef vector;
 
 
-int func(int rank,  struct pingpong_context *in_ctx, vector* vec, int iters, int tx_depth, int flag){
+int func(int rank,  struct pingpong_context *ctx, vector* vec, int iters, int tx_depth, int flag){
 
   if (flag == 0){
       if (rank == 0) {
-          memcpy(in_ctx->buf, vec + sizeof(int), sizeof (int));
-          for (int i = 0; i < iters; i++) {
-              if ((i != 0) && (i % tx_depth == 0)) {
-                  pp_wait_completions(in_ctx, tx_depth);
-                }
-              if (pp_post_send(in_ctx)) {
-                  fprintf(stderr, "Client couldn't post send\n");
-                  return 1;
-                }
-            }
-          printf("Client Done.\n");
-        } else {
-          if (pp_post_send(in_ctx)) {
-              fprintf(stderr, "Server couldn't post send\n");
+          memcpy(ctx->buf, vec, sizeof (vector));
+          if (pp_post_send(ctx)) {
+              fprintf(stderr, "Client couldn't post send\n");
               return 1;
             }
 
-          pp_wait_completions(in_ctx, iters);
-          vector* tmp = (vector*) in_ctx->buf;
+          pp_wait_completions(ctx, tx_depth);
+          printf("Client Done.\n");
+
+        } else {
+          if (pp_post_recv(ctx,1)) {
+              fprintf(stderr, "Server couldn't post receive\n");
+              return 1;
+            }
+
+          pp_wait_completions(ctx, iters);
+          vector* tmp = (vector*) ctx->buf;
           printf("%d %d \n", tmp->a, tmp->b);
           printf("Server Done.\n");
         }
@@ -610,32 +576,28 @@ int func(int rank,  struct pingpong_context *in_ctx, vector* vec, int iters, int
 
   } else {
       if (rank != 0) {
-          memcpy(in_ctx->buf, vec, sizeof (int));
-          for (int i = 0; i < iters; i++) {
-              if ((i != 0) && (i % tx_depth == 0)) {
-                  pp_wait_completions(in_ctx, tx_depth);
-                }
-              if (pp_post_send(in_ctx)) {
-                  fprintf(stderr, "Client couldn't post send\n");
-                  return 1;
-                }
-            }
-          printf("Client Done.\n");
-        } else {
-          if (pp_post_send(in_ctx)) {
-              fprintf(stderr, "Server couldn't post send\n");
+          memcpy(ctx->buf, vec, sizeof (vector));
+          if (pp_post_send(ctx)) {
+              fprintf(stderr, "Client couldn't post send\n");
               return 1;
             }
 
-          pp_wait_completions(in_ctx, iters);
-          vector* tmp = (vector*) in_ctx->buf;
+          pp_wait_completions(ctx, tx_depth);
+          printf("Client Done.\n");
+
+        } else {
+          if (pp_post_recv(ctx,1)) {
+              fprintf(stderr, "Server couldn't post receive\n");
+              return 1;
+            }
+
+          pp_wait_completions(ctx, iters);
+          vector* tmp = (vector*) ctx->buf;
           printf("%d %d \n", tmp->a, tmp->b);
           printf("Server Done.\n");
         }
       return 0;
   }
-
-
 }
 
 
@@ -801,8 +763,7 @@ int main(int argc, char *argv[])
   shared_ctx = calloc (1,sizeof(shared_ctx));
   shared_ctx->context = ibv_open_device(ib_dev);
   if (!shared_ctx->context) {
-      fprintf(stderr, "Couldn't get context for %s\n",
-              ibv_get_device_name(ib_dev));
+      fprintf(stderr, "Couldn't get context for %s\n", ibv_get_device_name(ib_dev));
       return 1;
     }
 
@@ -821,11 +782,11 @@ int main(int argc, char *argv[])
   if (!in_ctx)
     return 1;
 
-  in_ctx->routs = pp_post_recv(in_ctx, in_ctx->rx_depth);
-  if (in_ctx->routs < in_ctx->rx_depth) {
-      fprintf(stderr, "Couldn't post receive (%d)\n", in_ctx->routs);
-      return 1;
-    }
+//  in_ctx->routs = pp_post_recv(in_ctx, in_ctx->rx_depth);
+//  if (in_ctx->routs < in_ctx->rx_depth) {
+//      fprintf(stderr, "Couldn't post receive (%d)\n", in_ctx->routs);
+//      return 1;
+//    }
 
   if (use_event)
     if (ibv_req_notify_cq(in_ctx->cq, 0)) {
@@ -856,9 +817,7 @@ int main(int argc, char *argv[])
   my_dest.qpn = in_ctx->qp->qp_num;
   my_dest.psn = lrand48() & 0xffffff;
   inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
-  printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         my_dest.lid, my_dest.qpn, my_dest.psn, gid);
-
+  printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n", my_dest.lid, my_dest.qpn, my_dest.psn, gid);
 
   if (rank != 0)
     rem_dest = pp_client_exch_dest(servername, port, &my_dest);
@@ -883,11 +842,11 @@ int main(int argc, char *argv[])
   if (!out_ctx)
     return 1;
 
-  out_ctx->routs = pp_post_recv(out_ctx, out_ctx->rx_depth);
-  if (out_ctx->routs < out_ctx->rx_depth) {
-      fprintf(stderr, "Couldn't post receive (%d)\n", out_ctx->routs);
-      return 1;
-    }
+//  out_ctx->routs = pp_post_recv(out_ctx, out_ctx->rx_depth);
+//  if (out_ctx->routs < out_ctx->rx_depth) {
+//      fprintf(stderr, "Couldn't post receive (%d)\n", out_ctx->routs);
+//      return 1;
+//    }
 
   if (use_event)
     if (ibv_req_notify_cq(out_ctx->cq, 0)) {
@@ -923,9 +882,9 @@ int main(int argc, char *argv[])
 
 
   if (rank == 0)
-    rem_dest = pp_client_exch_dest(servername, port, &my_dest);
+    rem_dest = pp_client_exch_dest(servername, port + 1, &my_dest);
   else
-    rem_dest = pp_server_exch_dest(out_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
+    rem_dest = pp_server_exch_dest(out_ctx, ib_port, mtu, port + 1, sl, &my_dest, gidx);
 
   if (!rem_dest)
     return 1;
