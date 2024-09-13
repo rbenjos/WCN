@@ -669,8 +669,8 @@ int main(int argc, char *argv[])
   int ib_port = 1;
   enum ibv_mtu mtu = IBV_MTU_2048;
   int rx_depth = 100;
-  int tx_depth = 100;
-  int iters = 1000;
+  int tx_depth = 1;
+  int iters = 1;
   int use_event = 0;
   int size = 32;
   int sl = 0;
@@ -873,11 +873,11 @@ int main(int argc, char *argv[])
       }
       int index = ((rank - i + tmp_len * 2) % NUM_PROCESSES) * seg;
       if (rank == 0){
-          send_ibx_pair (out_ctx,vec_arr,1,index,seg);
-          receive_ibx_pair(in_ctx,1,vec_arr,len, final,seg);
+          send_ibx_pair (out_ctx,vec_arr,tx_depth,index,seg);
+          receive_ibx_pair(in_ctx,iters,vec_arr,len, final,seg);
         } else {
-          receive_ibx_pair(in_ctx,1,vec_arr, len, final,seg);
-          send_ibx_pair (out_ctx,vec_arr,1,index,seg);
+          receive_ibx_pair(in_ctx,iters,vec_arr, len, final,seg);
+          send_ibx_pair (out_ctx,vec_arr,tx_depth,index,seg);
         }
     }
 
