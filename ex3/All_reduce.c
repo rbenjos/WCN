@@ -629,10 +629,14 @@ void receive_vec (struct pingpong_context *in_ctx, int iters,int len)
   printf("Server Done.\n");
 }
 
-void send_ibx_pair(struct pingpong_context *out_ctx, int *vec_arr, int tx_depth, int len, int index)
+void send_ibx_pair(struct pingpong_context *out_ctx, int *vec_arr, int tx_depth, int len, int index, int seg)
 {
-  memcpy(out_ctx->buf, &vec_arr[index], sizeof (int));
-  memcpy(out_ctx->buf + sizeof(int), &index, sizeof (int));
+  for(int i = 0 ; i < seg; i++){
+      memcpy(out_ctx->buf + (sizeof(int) * (2 * i)), &vec_arr[index+i], sizeof (int));
+      int tmp_idx = index + i;
+      memcpy(out_ctx->buf + (sizeof(int) * ((2 * i) + 1)) , &tmp_idx, sizeof (int));
+    }
+
   if (pp_post_send(out_ctx)) {
       fprintf(stderr, "Client couldn't post send\n");
       exit(1);
@@ -642,7 +646,7 @@ void send_ibx_pair(struct pingpong_context *out_ctx, int *vec_arr, int tx_depth,
   printf("Client Done.\n");
 }
 
-void receive_ibx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr, int len, int final)
+void receive_ibx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr, int len, int final, int seg)
 {
   if (pp_post_recv(in_ctx, 1)) {
       fprintf(stderr, "Server couldn't post receive\n");
@@ -651,8 +655,14 @@ void receive_ibx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr,
 
   pp_wait_completions(in_ctx, iters);
   int* received_arr = in_ctx->buf;
-  vec_arr[received_arr[1]] = (vec_arr[received_arr[1]] * final) + received_arr[0];
-  printf("item: %d, index: %d\n", received_arr[0],received_arr[1]);
+
+  for(int i = 0 ; i < seg; i++){
+    int index = received_arr[(i*2)+1];
+    int item = received_arr[i*2];
+      vec_arr[index] = (vec_arr[index] * final) + item;
+      printf("item: %d, index: %d\n", item , index);
+    }
+
   for (int i = 0; i < len; i++){
       printf("%d,", vec_arr[i]);
     }
@@ -883,23 +893,21 @@ int main(int argc, char *argv[])
 
   printf("%s\n", "after second communications");
 
+  int seg = len / 4;
   int final = 1;
-  for(int i=0; i < len * 2 - 2; i++){
-      if ( i == (len - 1) ){
+  for(int i=0; i < 6; i++){
+      if ( i == 3 ){
         final = 0;
       }
+      int index = ((rank - i + len * 2) % 4) * seg;
       if (rank == 0){
-          send_ibx_pair (out_ctx,vec_arr,1,len,(rank-i + len * 2) % 4);
-          receive_ibx_pair(in_ctx,1,vec_arr,len, final);
+          send_ibx_pair (out_ctx,vec_arr,1,len,index,seg);
+          receive_ibx_pair(in_ctx,1,vec_arr,len, final,seg);
         } else {
-          receive_ibx_pair(in_ctx,1,vec_arr, len, final);
-          send_ibx_pair (out_ctx,vec_arr,1,len,(rank-i + len * 2) % 4);
+          receive_ibx_pair(in_ctx,1,vec_arr, len, final,seg);
+          send_ibx_pair (out_ctx,vec_arr,1,len,index,seg);
         }
     }
-
-
-
-
 
 //////////////////////////////////////////////////////////////////////////////////
 
