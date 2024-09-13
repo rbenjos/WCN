@@ -601,9 +601,9 @@ void adjust_ctx (struct pingpong_dest *my_dest, int ib_port, int use_event, int 
   printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n", (*my_dest).lid, (*my_dest).qpn, (*my_dest).psn, gid);
 }
 
-void send_vec (struct pingpong_context *out_ctx, const vector *vec, int tx_depth)
+void send_vec (struct pingpong_context *out_ctx, int *vec_arr, int tx_depth, int len)
 {
-  memcpy(out_ctx->buf, vec, sizeof (vector));
+  memcpy(out_ctx->buf, vec_arr, len * sizeof (int));
   if (pp_post_send(out_ctx)) {
       fprintf(stderr, "Client couldn't post send\n");
               exit(1);
@@ -613,16 +613,19 @@ void send_vec (struct pingpong_context *out_ctx, const vector *vec, int tx_depth
   printf("Client Done.\n");
 }
 
-void receive_vec (struct pingpong_context *in_ctx, int iters)
+void receive_vec (struct pingpong_context *in_ctx, int iters,int len)
 {
   if (pp_post_recv(in_ctx, 1)) {
       fprintf(stderr, "Server couldn't post receive\n");
       exit(1);
     }
 
+  int* vec_arr = in_ctx->buf;
   pp_wait_completions(in_ctx, iters);
-  vector* tmp = (vector*) in_ctx->buf;
-  printf("%d %d \n", tmp->a, tmp->b);
+  for (int i = 0; i < len; i++){
+      printf("%d,", vec_arr[i]);
+    }
+  printf("\n");
   printf("Server Done.\n");
 }
 
@@ -863,11 +866,11 @@ int main(int argc, char *argv[])
 
   printf("%s\n", "after second communications");
   if (rank == 0){
-      send_vec (out_ctx,vec,1);
-      receive_vec (in_ctx,1);
+      send_vec (out_ctx,vec_arr,1,len);
+      receive_vec (in_ctx,1,len);
   } else {
-      receive_vec (in_ctx,1);
-      send_vec (out_ctx,vec,1);
+      receive_vec (in_ctx,1,len);
+      send_vec (out_ctx,vec_arr,1,len);
     }
 
 
