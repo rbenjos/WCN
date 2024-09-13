@@ -18,6 +18,9 @@
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "UnreachableCode"
 #define WC_BATCH (1)
+#define  NUM_PROCESSES 4
+#define ITERATIONS 6
+#define START_GATHER 3
 
 enum {
     PINGPONG_RECV_WRID = 1,
@@ -539,12 +542,11 @@ static void usage(const char *argv0)
   printf("  -l, --sl=<sl>          service level value\n");
   printf("  -e, --events           sleep on CQ events (default poll)\n");
   printf("  -g, --gid-idx=<gid index> local port gid index\n");
+  printf("  -x,  len               the vector length \n");
+  printf("  -v, vec_arr            the vector\n");
+  printf("  -k, rank               node rank\n");
 }
 
-struct vector{
-    int a;
-    int b;
-}typedef vector;
 
 struct pingpong_dest get_dest (struct pingpong_dest *my_dest, struct pingpong_dest *rem_dest, const char *servername, int port, int ib_port, enum ibv_mtu *mtu, int sl, int gidx, char *gid, int rank, struct pingpong_context *ctx, int client)
 {
@@ -694,8 +696,8 @@ int main(int argc, char *argv[])
   char                     gid[33];
   int                      rank;
   int                      *vec_arr;
-  int                       len;
-  int                     tmp_len;
+  int                      len;
+  int                      tmp_len;
 
   srand48(getpid() * time(NULL));
 
@@ -784,10 +786,6 @@ int main(int argc, char *argv[])
             len = strtol(optarg, NULL, 0);
             tmp_len = len % 4 == 0 ? len : len + (4 - len % 4);
             vec_arr = calloc(tmp_len ,sizeof(int));
-            if (vec_arr == NULL)
-              {
-                printf ("%s\n", "Failed to give memory");
-              }
           break;
 
           case 'v':
@@ -864,7 +862,6 @@ int main(int argc, char *argv[])
     return 1;
 
 
-  printf("%s\n", "in context");
   adjust_ctx (&in_my_dest, ib_port, use_event, gidx, gid, in_ctx);
 
   struct pingpong_context* out_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername, shared_ctx);
@@ -872,37 +869,31 @@ int main(int argc, char *argv[])
     return 1;
 
 
-  printf("%s\n", "out context");
   adjust_ctx (&out_my_dest, ib_port, use_event, gidx, gid, out_ctx);
 
   if (rank == 0){
-      printf("%s\n", "connecting");
       out_my_dest = get_dest (&out_my_dest, out_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, out_ctx, 0);  // client = true = 0
     }
   else{
-      printf("%s\n", "awaiting connection");
       in_my_dest = get_dest (&in_my_dest, in_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, in_ctx, 1);    // client = false = 1
     }
 
 
   if (rank != 0){
-      printf("%s\n", "connecting");
       out_my_dest = get_dest (&out_my_dest, out_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, out_ctx, 0);  // client = true = 0
     }
   else {
-      printf("%s\n", "awaiting connection");
       in_my_dest = get_dest (&in_my_dest, in_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, in_ctx, 1);    // client = false = 1
     }
 
-  printf("%s\n", "after second communications");
 
-  int seg = tmp_len / 4;
+  int seg = tmp_len / NUM_PROCESSES;
   int final = 1;
-  for(int i=0; i < 6; i++){
-      if ( i == 3 ){
+  for(int i = 0; i < ITERATIONS; i++){
+      if ( i == START_GATHER ){
         final = 0;
       }
-      int index = ((rank - i + tmp_len * 2) % 4) * seg;
+      int index = ((rank - i + tmp_len * 2) % NUM_PROCESSES) * seg;
       if (rank == 0){
           send_ibx_pair (out_ctx,vec_arr,1,index,seg);
           receive_ibx_pair(in_ctx,1,vec_arr,len, final,seg);
@@ -917,6 +908,7 @@ int main(int argc, char *argv[])
   ibv_free_device_list(dev_list);
   free(in_rem_dest);
   free(out_rem_dest);
+  free(vec_arr);
   return 0;
 }
 
