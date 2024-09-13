@@ -338,7 +338,6 @@ static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,
 
   ctx = calloc(1, sizeof *ctx);
 
-  printf("%s\n", "after shared coonteext");
 
   if (!ctx)
     return NULL;
@@ -547,69 +546,95 @@ struct vector{
     int b;
 }typedef vector;
 
+struct pingpong_dest get_dest (struct pingpong_dest *my_dest, struct pingpong_dest *rem_dest, const char *servername, int port, int ib_port, enum ibv_mtu *mtu, int sl, int gidx, char *gid, int rank, struct pingpong_context *ctx, int client)
+{
+  if (client == 0)
+    rem_dest = pp_client_exch_dest(servername, port, my_dest);
+  else
+    rem_dest = pp_server_exch_dest(ctx, ib_port, (*mtu), port, sl, my_dest, gidx);
 
-int func(int rank,  struct pingpong_context *ctx, vector* vec, int iters, int tx_depth, int flag){
+  if (!rem_dest)
+    exit(1);
 
-  if (flag == 0){
-      if (rank == 0) {
-          memcpy(ctx->buf, vec, sizeof (vector));
-          if (pp_post_send(ctx)) {
-              fprintf(stderr, "Client couldn't post send\n");
-              return 1;
-            }
+  inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
+  printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
+         rem_dest->lid, rem_dest->qpn, rem_dest->psn, gid);
 
-          pp_wait_completions(ctx, tx_depth);
-          printf("Client Done.\n");
+  if (client == 0)
+    if (pp_connect_ctx(ctx, ib_port, (*my_dest).psn, (*mtu), sl, rem_dest, gidx))
+      exit(1);
 
-        } else {
-          if (pp_post_recv(ctx,1)) {
-              fprintf(stderr, "Server couldn't post receive\n");
-              return 1;
-            }
-
-          pp_wait_completions(ctx, iters);
-          vector* tmp = (vector*) ctx->buf;
-          printf("%d %d \n", tmp->a, tmp->b);
-          printf("Server Done.\n");
-        }
-      return 0;
-
-  } else {
-      if (rank != 0) {
-          memcpy(ctx->buf, vec, sizeof (vector));
-          if (pp_post_send(ctx)) {
-              fprintf(stderr, "Client couldn't post send\n");
-              return 1;
-            }
-
-          pp_wait_completions(ctx, tx_depth);
-          printf("Client Done.\n");
-
-        } else {
-          if (pp_post_recv(ctx,1)) {
-              fprintf(stderr, "Server couldn't post receive\n");
-              return 1;
-            }
-
-          pp_wait_completions(ctx, iters);
-          vector* tmp = (vector*) ctx->buf;
-          printf("%d %d \n", tmp->a, tmp->b);
-          printf("Server Done.\n");
-        }
-      return 0;
-  }
+  return (*my_dest);
 }
 
 
+void adjust_ctx (struct pingpong_dest *my_dest, int ib_port, int use_event, int gidx, char *gid, struct pingpong_context *ctx)
+{
+  if (use_event)
+    if (ibv_req_notify_cq(ctx->cq, 0)) {
+        fprintf(stderr, "Couldn't request CQ notification\n");
+        exit(1);
+      }
 
+  if (pp_get_port_info(ctx->context, ib_port, &ctx->portinfo)) {
+      fprintf(stderr, "Couldn't get port info\n");
+      exit(1);
+    }
+
+  (*my_dest).lid = ctx->portinfo.lid;
+  if (ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !(*my_dest).lid) {
+      fprintf(stderr, "Couldn't get local LID\n");
+      exit(1);
+    }
+
+  if (gidx >= 0) {
+      if (ibv_query_gid(ctx->context, ib_port, gidx, &(*my_dest).gid)) {
+          fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
+          exit(1);
+        }
+    } else
+    memset(&(*my_dest).gid, 0, sizeof (*my_dest).gid);
+
+  (*my_dest).qpn = ctx->qp->qp_num;
+  (*my_dest).psn = lrand48() & 0xffffff;
+  inet_ntop(AF_INET6, &(*my_dest).gid, gid, sizeof gid);
+  printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n", (*my_dest).lid, (*my_dest).qpn, (*my_dest).psn, gid);
+}
+
+void send_vec (struct pingpong_context *out_ctx, const vector *vec, int tx_depth)
+{
+  memcpy(out_ctx->buf, vec, sizeof (vector));
+  if (pp_post_send(out_ctx)) {
+      fprintf(stderr, "Client couldn't post send\n");
+              exit(1);
+    }
+
+  pp_wait_completions(out_ctx, tx_depth);
+  printf("Client Done.\n");
+}
+
+void receive_vec (struct pingpong_context *in_ctx, int iters)
+{
+  if (pp_post_recv(in_ctx, 1)) {
+      fprintf(stderr, "Server couldn't post receive\n");
+      exit(1);
+    }
+
+  pp_wait_completions(in_ctx, iters);
+  vector* tmp = (vector*) in_ctx->buf;
+  printf("%d %d \n", tmp->a, tmp->b);
+  printf("Server Done.\n");
+}
 
 int main(int argc, char *argv[])
 {
   struct ibv_device      **dev_list;
   struct ibv_device       *ib_dev;
   struct pingpong_context *ctx;
-  struct pingpong_dest     my_dest;
-  struct pingpong_dest    *rem_dest;
+  struct pingpong_dest     in_my_dest;
+  struct pingpong_dest     out_my_dest;
+  struct pingpong_dest    *in_rem_dest;
+  struct pingpong_dest    *out_rem_dest;
   char                    *ib_devname = NULL;
   char                    *servername;
   int                      port = 12345;
@@ -775,10 +800,8 @@ int main(int argc, char *argv[])
         }
     } else
     shared_ctx->channel = NULL;
-  printf("%s\n", "after shared coonteext");
 
   struct pingpong_context* in_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername, shared_ctx);
-
   if (!in_ctx)
     return 1;
 
@@ -788,57 +811,10 @@ int main(int argc, char *argv[])
 //      return 1;
 //    }
 
-  if (use_event)
-    if (ibv_req_notify_cq(in_ctx->cq, 0)) {
-        fprintf(stderr, "Couldn't request CQ notification\n");
-        return 1;
-      }
-
-
-  if (pp_get_port_info(in_ctx->context, ib_port, &in_ctx->portinfo)) {
-      fprintf(stderr, "Couldn't get port info\n");
-      return 1;
-    }
-
-  my_dest.lid = in_ctx->portinfo.lid;
-  if (in_ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
-      fprintf(stderr, "Couldn't get local LID\n");
-      return 1;
-    }
-
-  if (gidx >= 0) {
-      if (ibv_query_gid(in_ctx->context, ib_port, gidx, &my_dest.gid)) {
-          fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
-          return 1;
-        }
-    } else
-    memset(&my_dest.gid, 0, sizeof my_dest.gid);
-
-  my_dest.qpn = in_ctx->qp->qp_num;
-  my_dest.psn = lrand48() & 0xffffff;
-  inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
-  printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n", my_dest.lid, my_dest.qpn, my_dest.psn, gid);
-
-  if (rank != 0)
-    rem_dest = pp_client_exch_dest(servername, port, &my_dest);
-  else
-    rem_dest = pp_server_exch_dest(in_ctx, ib_port, mtu, port, sl, &my_dest, gidx);
-
-  if (!rem_dest)
-    return 1;
-
-  inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
-  printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         rem_dest->lid, rem_dest->qpn, rem_dest->psn, gid);
-
-  if (rank != 0)
-    if (pp_connect_ctx(in_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
-      return 1;
-
-  func (rank,in_ctx,vec,iters,tx_depth,1);
+  printf("%s\n", "in context");
+  adjust_ctx (&in_my_dest, ib_port, use_event, gidx, gid, in_ctx);
 
   struct pingpong_context* out_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername, shared_ctx);
-
   if (!out_ctx)
     return 1;
 
@@ -848,62 +824,46 @@ int main(int argc, char *argv[])
 //      return 1;
 //    }
 
-  if (use_event)
-    if (ibv_req_notify_cq(out_ctx->cq, 0)) {
-        fprintf(stderr, "Couldn't request CQ notification\n");
-        return 1;
-      }
+  printf("%s\n", "out context");
+  adjust_ctx (&out_my_dest, ib_port, use_event, gidx, gid, out_ctx);
 
-
-  if (pp_get_port_info(out_ctx->context, ib_port, &out_ctx->portinfo)) {
-      fprintf(stderr, "Couldn't get port info\n");
-      return 1;
+  if (rank == 0){
+      printf("%s\n", "connecting");
+      out_my_dest = get_dest (&out_my_dest, out_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, out_ctx, 0);  // client = true = 0
+    }
+  else{
+      printf("%s\n", "awaiting connection");
+      in_my_dest = get_dest (&in_my_dest, in_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, in_ctx, 1);    // client = false = 1
     }
 
-  my_dest.lid = out_ctx->portinfo.lid;
-  if (out_ctx->portinfo.link_layer == IBV_LINK_LAYER_INFINIBAND && !my_dest.lid) {
-      fprintf(stderr, "Couldn't get local LID\n");
-      return 1;
+
+  if (rank != 0){
+      printf("%s\n", "connecting");
+      out_my_dest = get_dest (&out_my_dest, out_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, out_ctx, 0);  // client = true = 0
+    }
+  else {
+      printf("%s\n", "awaiting connection");
+      in_my_dest = get_dest (&in_my_dest, in_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, in_ctx, 1);    // client = false = 1
     }
 
-  if (gidx >= 0) {
-      if (ibv_query_gid(out_ctx->context, ib_port, gidx, &my_dest.gid)) {
-          fprintf(stderr, "Could not get local gid for gid index %d\n", gidx);
-          return 1;
-        }
-    } else
-    memset(&my_dest.gid, 0, sizeof my_dest.gid);
-
-  my_dest.qpn = out_ctx->qp->qp_num;
-  my_dest.psn = lrand48() & 0xffffff;
-  inet_ntop(AF_INET6, &my_dest.gid, gid, sizeof gid);
-  printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         my_dest.lid, my_dest.qpn, my_dest.psn, gid);
+  printf("%s\n", "after second communications");
+  if (rank == 0){
+      send_vec (out_ctx,vec,1);
+      receive_vec (in_ctx,1);
+  } else {
+      receive_vec (in_ctx,1);
+      send_vec (out_ctx,vec,1);
+    }
 
 
-  if (rank == 0)
-    rem_dest = pp_client_exch_dest(servername, port + 1, &my_dest);
-  else
-    rem_dest = pp_server_exch_dest(out_ctx, ib_port, mtu, port + 1, sl, &my_dest, gidx);
 
-  if (!rem_dest)
-    return 1;
-
-  inet_ntop(AF_INET6, &rem_dest->gid, gid, sizeof gid);
-  printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
-         rem_dest->lid, rem_dest->qpn, rem_dest->psn, gid);
-
-  if (rank == 0)
-    if (pp_connect_ctx(out_ctx, ib_port, my_dest.psn, mtu, sl, rem_dest, gidx))
-      return 1;
-
-  func (rank,out_ctx,vec,iters,tx_depth,0);
 
 
 //////////////////////////////////////////////////////////////////////////////////
 
   ibv_free_device_list(dev_list);
-  free(rem_dest);
+  free(in_rem_dest);
+  free(out_rem_dest);
   return 0;
 }
 
