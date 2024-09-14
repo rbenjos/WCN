@@ -21,7 +21,7 @@
 #pragma ide diagnostic ignored "UnreachableCode"
 
 #define WC_BATCH 1
-#define  NUM_PROCESSES 4
+#define NUM_PROCESSES 4
 #define ITERATIONS 6
 #define START_GATHER 3
 #define START_NODE 0
@@ -30,6 +30,11 @@ enum {
     PINGPONG_RECV_WRID = 1,
     PINGPONG_SEND_WRID = 2,
 };
+
+enum OPERATION{
+    ADDITION = 0,
+    MULTIPLICATION = 1,
+} typedef OPERATION;
 
 static int page_size;
 
@@ -613,7 +618,7 @@ void receive_vec(struct pingpong_context *in_ctx, int iters, int len)
   printf("Server Done.\n");
 }
 
-void send_ibx_pair(struct pingpong_context *out_ctx, int *vec_arr, int tx_depth, int index, int seg)
+void send_idx_pair(struct pingpong_context *out_ctx, int *vec_arr, int tx_depth, int index, int seg)
 {
   for(int i = 0 ; i < seg; i++){
       memcpy(out_ctx->buf + (sizeof(int) * (2 * i)), &vec_arr[index+i], sizeof (int));
@@ -630,7 +635,30 @@ void send_ibx_pair(struct pingpong_context *out_ctx, int *vec_arr, int tx_depth,
   printf("Client Done.\n");
 }
 
-void receive_ibx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr, int len, int final, int seg)
+void reduce (int *vec_arr, int final, int index, int item, OPERATION op){
+  switch (op)
+    {
+      case ADDITION:
+        vec_arr[index] = (vec_arr[index] * final) + item;
+
+      break;
+
+      case MULTIPLICATION:
+        vec_arr[index] = final == 1 ? (vec_arr[index] * item) : item;
+      break;
+
+      default:
+        break;
+    }
+  printf("item: %d, index: %d, final: %d\n", item, index, final);
+
+}
+
+
+
+
+
+void receive_idx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr, int len, int final, int seg, OPERATION op)
 {
   if (pp_post_recv(in_ctx, iters)) {
       fprintf(stderr, "Server couldn't post receive\n");
@@ -643,16 +671,35 @@ void receive_ibx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr,
   for(int i = 0 ; i < seg; i++){
     int index = received_arr[(i*2)+1];
     int item = received_arr[i*2];
-      vec_arr[index] = (vec_arr[index] * final) + item;
+      reduce(vec_arr, final, index, item, op);
       printf("item: %d, index: %d\n", item, index);
     }
-
   for (int i = 0; i < len; i++){
       printf("%d,", vec_arr[i]);
     }
   printf("\n");
   printf("Server Done.\n");
 }
+
+void pg_all_reduce (int tx_depth, int iters, int rank, int *vec_arr, int len, int tmp_len, struct pingpong_context *in_ctx, struct pingpong_context *out_ctx, OPERATION op)
+{
+  int seg = tmp_len / NUM_PROCESSES;
+  int final = 1;
+  for (int i = 0; i < ITERATIONS; i++){
+      if ( i == START_GATHER ) {
+        final = 0;
+      }
+      int index = ((rank - i + tmp_len * 2) % NUM_PROCESSES) * seg;
+      if (rank == START_NODE){
+          send_idx_pair (out_ctx, vec_arr, tx_depth, index, seg);
+          receive_idx_pair (in_ctx, iters, vec_arr, len, final, seg, op);
+        } else {
+          receive_idx_pair (in_ctx, iters, vec_arr, len, final, seg, op);
+          send_idx_pair (out_ctx, vec_arr, tx_depth, index, seg);
+        }
+    }
+}
+
 
 int main(int argc, char *argv[])
 {
@@ -680,6 +727,7 @@ int main(int argc, char *argv[])
   int *vec_arr;
   int len;
   int tmp_len;
+  OPERATION op;
 
   srand48(getpid() * time(NULL));
 
@@ -700,10 +748,11 @@ int main(int argc, char *argv[])
           {.name = "rank", .has_arg = 1, .val = 'k'},
           {.name = "vec", .has_arg = 1, .val = 'v'},
           {.name = "len", .has_arg = 1, .val = 'x'},
+          {.name = "op", .has_arg = 1, .val = 'o'},
           {0}
       };
 
-      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:e:g:k:v:x:", long_options, NULL);
+      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:e:g:k:v:x:o:", long_options, NULL);
       if (c == -1)
         break;
 
@@ -775,6 +824,10 @@ int main(int argc, char *argv[])
           for (int i = 1; i < len; i++){
               vec_arr[i] = atoi(strtok(NULL, ","));
             }
+          break;
+
+          case 'o':
+            op = strtol(optarg, NULL, 0) == 0 ? ADDITION : MULTIPLICATION;
           break;
 
           default:
@@ -862,21 +915,7 @@ int main(int argc, char *argv[])
       in_my_dest = get_dest (&in_my_dest, in_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, in_ctx, false);    // client = false
     }
 
-  int seg = tmp_len / NUM_PROCESSES;
-  int final = 1;
-  for (int i = 0; i < ITERATIONS; i++){
-      if ( i == START_GATHER ) {
-        final = 0;
-      }
-      int index = ((rank - i + tmp_len * 2) % NUM_PROCESSES) * seg;
-      if (rank == START_NODE){
-          send_ibx_pair (out_ctx,vec_arr,tx_depth,index,seg);
-          receive_ibx_pair(in_ctx,iters,vec_arr,len, final,seg);
-        } else {
-          receive_ibx_pair(in_ctx,iters,vec_arr, len, final,seg);
-          send_ibx_pair (out_ctx,vec_arr,tx_depth,index,seg);
-        }
-    }
+  pg_all_reduce(tx_depth, iters, rank, vec_arr, len, tmp_len, in_ctx, out_ctx, op);
 
 //////////////////////////////////////////////////////////////////////////////////
 
