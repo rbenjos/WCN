@@ -36,6 +36,11 @@ enum OPERATION{
     MULTIPLICATION = 1,
 } typedef OPERATION;
 
+enum DATA_TYPE{
+    INT = 0,
+    FLOAT = 1,
+} typedef DATA_TYPE;
+
 static int page_size;
 
 struct shared_context {
@@ -590,40 +595,48 @@ void adjust_ctx (struct pingpong_dest *my_dest, int ib_port, int use_event, int 
   printf("  local address:  LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n", (*my_dest).lid, (*my_dest).qpn, (*my_dest).psn, gid);
 }
 
-void send_vec (struct pingpong_context *out_ctx, int *vec_arr, int tx_depth, int len)
-{
-  memcpy(out_ctx->buf, vec_arr, len * sizeof (int));
-  if (pp_post_send(out_ctx)) {
-      fprintf(stderr, "Client couldn't post send\n");
-      exit(1);
-    }
+//void send_vec (struct pingpong_context *out_ctx, int *vec_arr, int tx_depth, int len)
+//{
+//  memcpy(out_ctx->buf, vec_arr, len * sizeof (int));
+//  if (pp_post_send(out_ctx)) {
+//      fprintf(stderr, "Client couldn't post send\n");
+//      exit(1);
+//    }
+//
+//  pp_wait_completions(out_ctx, tx_depth);
+//  printf("Client Done.\n");
+//}
+//
+//void receive_vec(struct pingpong_context *in_ctx, int iters, int len)
+//{
+//  if (pp_post_recv(in_ctx, 1)) {
+//      fprintf(stderr, "Server couldn't post receive\n");
+//      exit(1);
+//    }
+//
+//  int *vec_arr = in_ctx->buf;
+//  pp_wait_completions(in_ctx, iters);
+//  for (int i = 0; i < len; i++){
+//      printf("%d,", vec_arr[i]);
+//    }
+//  printf("\n");
+//  printf("Server Done.\n");
+//}
 
-  pp_wait_completions(out_ctx, tx_depth);
-  printf("Client Done.\n");
+
+void copy_pair (const struct pingpong_context *out_ctx, const void *vec_arr, int index, int i, DATA_TYPE dt){
+
+  int size = dt == INT ? sizeof(int) : sizeof(float);
+  memcpy(out_ctx->buf + (size * (2 * i)), &vec_arr[index + i], size);
+  int tmp_idx = index + i;
+  memcpy(out_ctx->buf + (size * ((2 * i) + 1)) , &tmp_idx, size);
 }
 
-void receive_vec(struct pingpong_context *in_ctx, int iters, int len)
-{
-  if (pp_post_recv(in_ctx, 1)) {
-      fprintf(stderr, "Server couldn't post receive\n");
-      exit(1);
-    }
 
-  int *vec_arr = in_ctx->buf;
-  pp_wait_completions(in_ctx, iters);
-  for (int i = 0; i < len; i++){
-      printf("%d,", vec_arr[i]);
-    }
-  printf("\n");
-  printf("Server Done.\n");
-}
-
-void send_idx_pair(struct pingpong_context *out_ctx, int *vec_arr, int tx_depth, int index, int seg)
+void send_idx_pair(struct pingpong_context *out_ctx, void *vec_arr, int tx_depth, int index, int seg, DATA_TYPE dt)
 {
   for(int i = 0 ; i < seg; i++){
-      memcpy(out_ctx->buf + (sizeof(int) * (2 * i)), &vec_arr[index+i], sizeof (int));
-      int tmp_idx = index + i;
-      memcpy(out_ctx->buf + (sizeof(int) * ((2 * i) + 1)) , &tmp_idx, sizeof (int));
+      copy_pair (out_ctx, vec_arr, index, i, dt);
     }
 
   if (pp_post_send(out_ctx)) {
@@ -655,11 +668,15 @@ void reduce (int *vec_arr, int final, int index, int item, OPERATION op){
 }
 
 
-
-
-
-void receive_idx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr, int len, int final, int seg, OPERATION op)
+void receive_idx_pair (struct pingpong_context *in_ctx, int iters, void* vec_arr, int len, int final, int seg, OPERATION op, DATA_TYPE dt)
 {
+  float* tmp_arr = (float*) vec_arr;
+
+  if (dt == INT)
+    {
+      int* tmp_arr = (int *) vec_arr;
+    }
+
   if (pp_post_recv(in_ctx, iters)) {
       fprintf(stderr, "Server couldn't post receive\n");
       exit(1);
@@ -675,14 +692,16 @@ void receive_idx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr,
       printf("item: %d, index: %d\n", item, index);
     }
   for (int i = 0; i < len; i++){
-      printf("%d,", vec_arr[i]);
+      dt == INT ? printf("%d,", tmp_arr[i]): printf("%f,", tmp_arr[i]);
     }
   printf("\n");
   printf("Server Done.\n");
 }
 
-void pg_all_reduce (int tx_depth, int iters, int rank, int *vec_arr, int len, int tmp_len, struct pingpong_context *in_ctx, struct pingpong_context *out_ctx, OPERATION op)
+void pg_all_reduce (int tx_depth, int iters, int rank, void *vec_arr, int len, int tmp_len, struct pingpong_context *in_ctx, struct pingpong_context *out_ctx, OPERATION op ,DATA_TYPE dt)
 {
+
+
   int seg = tmp_len / NUM_PROCESSES;
   int final = 1;
   for (int i = 0; i < ITERATIONS; i++){
@@ -691,11 +710,11 @@ void pg_all_reduce (int tx_depth, int iters, int rank, int *vec_arr, int len, in
       }
       int index = ((rank - i + tmp_len * 2) % NUM_PROCESSES) * seg;
       if (rank == START_NODE){
-          send_idx_pair (out_ctx, vec_arr, tx_depth, index, seg);
-          receive_idx_pair (in_ctx, iters, vec_arr, len, final, seg, op);
+          send_idx_pair (out_ctx, vec_arr, tx_depth, index, seg, dt);
+          receive_idx_pair (in_ctx, iters, vec_arr, len, final, seg, op, dt);
         } else {
-          receive_idx_pair (in_ctx, iters, vec_arr, len, final, seg, op);
-          send_idx_pair (out_ctx, vec_arr, tx_depth, index, seg);
+          receive_idx_pair (in_ctx, iters, vec_arr, len, final, seg, op, dt);
+          send_idx_pair (out_ctx, vec_arr, tx_depth, index, seg, dt);
         }
     }
 }
@@ -728,6 +747,7 @@ int main(int argc, char *argv[])
   int len;
   int tmp_len;
   OPERATION op;
+  DATA_TYPE dt;
 
   srand48(getpid() * time(NULL));
 
@@ -749,10 +769,11 @@ int main(int argc, char *argv[])
           {.name = "vec", .has_arg = 1, .val = 'v'},
           {.name = "len", .has_arg = 1, .val = 'x'},
           {.name = "op", .has_arg = 1, .val = 'o'},
+          {.name = "dt", .has_arg = 1, .val = 't'},
           {0}
       };
 
-      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:e:g:k:v:x:o:", long_options, NULL);
+      c = getopt_long(argc, argv, "p:d:i:s:m:r:n:l:e:g:k:v:x:o:t:", long_options, NULL);
       if (c == -1)
         break;
 
@@ -816,19 +837,26 @@ int main(int argc, char *argv[])
           case 'x':
             len = strtol(optarg, NULL, 0);
           tmp_len = len % NUM_PROCESSES == 0 ? len : len + (NUM_PROCESSES - len % NUM_PROCESSES);
-          vec_arr = calloc(tmp_len, sizeof(int));
+          if (dt == INT)
+            vec_arr = calloc(tmp_len, sizeof(int));
+          else
+            vec_arr = calloc(tmp_len, sizeof(float));
           break;
 
           case 'v':
-            vec_arr[0] = atoi(strtok(optarg, ","));
+            vec_arr[0] = dt == INT ? atoi(strtok(optarg, ",")) : atof(strtok(optarg, ","));
           for (int i = 1; i < len; i++){
-              vec_arr[i] = atoi(strtok(NULL, ","));
+              vec_arr[i] = dt == INT ? atoi(strtok(NULL, ",")) : atof(strtok(NULL, ","));
             }
           break;
 
           case 'o':
             op = strtol(optarg, NULL, 0) == 0 ? ADDITION : MULTIPLICATION;
           break;
+
+          case 't':
+            dt = strtol(optarg, NULL, 0) == 0 ? INT : FLOAT;
+            break;
 
           default:
             usage(argv[0]);
@@ -915,7 +943,7 @@ int main(int argc, char *argv[])
       in_my_dest = get_dest (&in_my_dest, in_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, in_ctx, false);    // client = false
     }
 
-  pg_all_reduce(tx_depth, iters, rank, vec_arr, len, tmp_len, in_ctx, out_ctx, op);
+  pg_all_reduce(tx_depth, iters, rank, vec_arr, len, tmp_len, in_ctx, out_ctx, op, dt);
 
 //////////////////////////////////////////////////////////////////////////////////
 
