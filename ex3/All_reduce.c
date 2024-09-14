@@ -12,15 +12,19 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <time.h>
+#include <sys/param.h>
+#include <stdbool.h>
 
 #include <infiniband/verbs.h>
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "UnreachableCode"
-#define WC_BATCH (1)
+
+#define WC_BATCH 1
 #define  NUM_PROCESSES 4
 #define ITERATIONS 6
 #define START_GATHER 3
+#define START_NODE 0
 
 enum {
     PINGPONG_RECV_WRID = 1,
@@ -321,7 +325,7 @@ static struct pingpong_dest *pp_server_exch_dest(struct pingpong_context *ctx, i
   return rem_dest;
 }
 
-#include <sys/param.h>
+
 
 static struct pingpong_context *pp_init_ctx(struct ibv_device *ib_dev, int size,int rx_depth, int tx_depth, int port, int use_event, int is_server, struct shared_context* shared_ctx)
 {
@@ -458,10 +462,6 @@ static int pp_post_recv(struct pingpong_context *ctx, int n)
   };
   struct ibv_recv_wr *bad_wr;
 
-//  for (int i = 0; i < n; ++i)
-//    if (ibv_post_recv(ctx->qp, &wr, &bad_wr))
-//      break;
-
   return ibv_post_recv(ctx->qp, &wr, &bad_wr);
 }
 
@@ -532,7 +532,7 @@ static void usage(const char *argv0)
 
 struct pingpong_dest get_dest (struct pingpong_dest *my_dest, struct pingpong_dest *rem_dest, const char *servername, int port, int ib_port, enum ibv_mtu *mtu, int sl, int gidx, char *gid, int rank, struct pingpong_context *ctx, int client)
 {
-  if (client == 0)
+  if (client == true)
     rem_dest = pp_client_exch_dest(servername, port, my_dest);
   else
     rem_dest = pp_server_exch_dest(ctx, ib_port, (*mtu), port, sl, my_dest, gidx);
@@ -544,7 +544,7 @@ struct pingpong_dest get_dest (struct pingpong_dest *my_dest, struct pingpong_de
   printf("  remote address: LID 0x%04x, QPN 0x%06x, PSN 0x%06x, GID %s\n",
          rem_dest->lid, rem_dest->qpn, rem_dest->psn, gid);
 
-  if (client == 0)
+  if (client == true)
     if (pp_connect_ctx(ctx, ib_port, (*my_dest).psn, (*mtu), sl, rem_dest, gidx))
       exit(1);
 
@@ -632,7 +632,7 @@ void send_ibx_pair(struct pingpong_context *out_ctx, int *vec_arr, int tx_depth,
 
 void receive_ibx_pair (struct pingpong_context *in_ctx, int iters, int* vec_arr, int len, int final, int seg)
 {
-  if (pp_post_recv(in_ctx, 1)) {
+  if (pp_post_recv(in_ctx, iters)) {
       fprintf(stderr, "Server couldn't post receive\n");
       exit(1);
     }
@@ -665,7 +665,7 @@ int main(int argc, char *argv[])
   struct pingpong_dest *out_rem_dest;
   char *ib_devname = NULL;
   char *servername;
-  int port = 12345;
+  int port = 3659;
   int ib_port = 1;
   enum ibv_mtu mtu = IBV_MTU_2048;
   int rx_depth = 100;
@@ -766,7 +766,7 @@ int main(int argc, char *argv[])
 
           case 'x':
             len = strtol(optarg, NULL, 0);
-          tmp_len = len % 4 == 0 ? len : len + (4 - len % 4);
+          tmp_len = len % NUM_PROCESSES == 0 ? len : len + (NUM_PROCESSES - len % NUM_PROCESSES);
           vec_arr = calloc(tmp_len, sizeof(int));
           break;
 
@@ -839,40 +839,37 @@ int main(int argc, char *argv[])
     shared_ctx->channel = NULL;
 
   struct pingpong_context *in_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername, shared_ctx);
-  if (!in_ctx)
+  struct pingpong_context *out_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername, shared_ctx);
+
+  if (!in_ctx || !out_ctx)
     return 1;
 
   adjust_ctx(&in_my_dest, ib_port, use_event, gidx, gid, in_ctx);
-
-  struct pingpong_context *out_ctx = pp_init_ctx(ib_dev, size, rx_depth, tx_depth, ib_port, use_event, !servername, shared_ctx);
-  if (!out_ctx)
-    return 1;
-
   adjust_ctx(&out_my_dest, ib_port, use_event, gidx, gid, out_ctx);
 
-  if (rank == 0){
-      out_my_dest = get_dest (&out_my_dest, out_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, out_ctx, 0);  // client = true = 0
+  if (rank == START_NODE){
+      out_my_dest = get_dest (&out_my_dest, out_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, out_ctx, true);  // client = true
     }
   else{
-      in_my_dest = get_dest (&in_my_dest, in_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, in_ctx, 1);    // client = false = 1
+      in_my_dest = get_dest (&in_my_dest, in_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, in_ctx, false);    // client = false
     }
 
 
-  if (rank != 0){
-      out_my_dest = get_dest (&out_my_dest, out_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, out_ctx, 0);  // client = true = 0
+  if (rank != START_NODE){
+      out_my_dest = get_dest (&out_my_dest, out_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, out_ctx, true);  // client = true
     }
   else {
-      in_my_dest = get_dest (&in_my_dest, in_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, in_ctx, 1);    // client = false = 1
+      in_my_dest = get_dest (&in_my_dest, in_rem_dest, servername, port, ib_port, &mtu, sl, gidx, gid, rank, in_ctx, false);    // client = false
     }
 
   int seg = tmp_len / NUM_PROCESSES;
   int final = 1;
-  for(int i = 0; i < ITERATIONS; i++){
-      if ( i == START_GATHER ){
+  for (int i = 0; i < ITERATIONS; i++){
+      if ( i == START_GATHER ) {
         final = 0;
       }
       int index = ((rank - i + tmp_len * 2) % NUM_PROCESSES) * seg;
-      if (rank == 0){
+      if (rank == START_NODE){
           send_ibx_pair (out_ctx,vec_arr,tx_depth,index,seg);
           receive_ibx_pair(in_ctx,iters,vec_arr,len, final,seg);
         } else {
@@ -887,8 +884,8 @@ int main(int argc, char *argv[])
   free(in_rem_dest);
   free(out_rem_dest);
   free(vec_arr);
-  pp_close_ctx(in_ctx);
-  pp_close_ctx(out_ctx);
+//  pp_close_ctx(in_ctx);
+//  pp_close_ctx(out_ctx);
   return 0;
 }
 
